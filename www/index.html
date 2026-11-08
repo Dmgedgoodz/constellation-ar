@@ -52,7 +52,8 @@ button:active { transform:translateY(1px); }
 #card { position:absolute; left:12px; right:12px; bottom:128px; z-index:18; background:var(--glass); border:1px solid var(--line); border-radius:16px; padding:14px 14px 12px; box-shadow:var(--shadow); backdrop-filter:blur(8px); }
 #card h2 { font-size:20px; font-weight:650; letter-spacing:.01em; }
 #card .kicker { color:var(--accent); font-size:11px; letter-spacing:.14em; text-transform:uppercase; margin-bottom:2px; }
-#card p { margin-top:6px; color:var(--muted); font-size:14px; line-height:1.4; }
+#cardBlurb { margin-top:8px; color:var(--fg); font-size:15px; line-height:1.45; }
+#card p { margin-top:8px; color:var(--muted); font-size:14px; line-height:1.4; }
 #card .row { display:flex; gap:8px; margin-top:10px; }
 #cardClose { position:absolute; right:8px; top:8px; width:32px; height:32px; border-radius:50%; }
 #onboard { position:absolute; inset:0; z-index:40; background:rgba(2,4,8,.72); display:flex; align-items:flex-end; justify-content:center; padding:16px; }
@@ -75,6 +76,7 @@ body.night #obNext { background:#6a2018; border-color:#ff5c4d; }
 <script src="vendor/astronomy.browser.min.js" onerror="(window.__skyLibError=window.__skyLibError||[]).push('astronomy-engine')"></script>
 <script src="vendor/satellite.min.js" onerror="(window.__skyLibError=window.__skyLibError||[]).push('satellite.js')"></script>
 <script src="catalog.js" onerror="(window.__skyLibError=window.__skyLibError||[]).push('catalog')"></script>
+<script src="descriptions.js" onerror="(window.__skyLibError=window.__skyLibError||[]).push('descriptions')"></script>
 </head>
 <body>
 <video id="video" autoplay playsinline muted></video>
@@ -93,6 +95,7 @@ body.night #obNext { background:#6a2018; border-color:#ff5c4d; }
   <button id="cardClose" type="button" aria-label="Close">×</button>
   <div class="kicker" id="cardKicker"></div>
   <h2 id="cardTitle"></h2>
+  <p id="cardBlurb"></p>
   <p id="cardBody"></p>
   <div class="row"><button id="cardGuide" type="button">Guide me</button></div>
 </div>
@@ -343,6 +346,7 @@ function reportLibraries(){
   if(!window.Astronomy) missing.push('astronomy-engine');
   if(!window.satellite) missing.push('satellite.js');
   if(!window.SKY) missing.push('catalog');
+  if(!window.SKY_DESC) missing.push('descriptions');
   (window.__skyLibError||[]).forEach(name=>{ if(!missing.includes(name)) missing.push(name); });
   if(missing.length) setNotice('lib', 'Library failed: '+missing.join(', '));
   setStatus(missing.length ? 'Libraries unavailable' : 'Ready');
@@ -519,8 +523,6 @@ function describePass(sat){
   const cur = satLook(sat, now);
   const bits = [];
   if(cur){
-    if(cur.altKm!=null) bits.push(`${Math.round(cur.altKm)} km`);
-    if(cur.speed!=null) bits.push(`${cur.speed.toFixed(1)} km/s`);
     bits.push(cur.alt>=0 ? `Up ${cur.alt.toFixed(0)}°` : `Below horizon ${cur.alt.toFixed(0)}°`);
   }
   if(max) bits.push(`Peak ${max.el.toFixed(0)}° at ${clock(max.date)}`);
@@ -530,10 +532,24 @@ function describePass(sat){
 }
 
 function starItem(s){
+  const blurb = window.SKY_DESC && SKY_DESC.stars[s[0]+'|'+s[1]];
   return {
     kind:'star', name:s[3] || 'Star', type:'Star', mag:s[2], ra:s[0], dec:s[1],
     con: CON_NAME[s[4]] || s[4] || '',
+    blurb: blurb || '',
     altaz(date){ return raDecToAltAz(s[0], s[1], lat, lon, date); }
+  };
+}
+function constItem(con){
+  const seg = (con.lines && con.lines[0]) || [];
+  const mid = seg[Math.floor(seg.length/2)] || seg[0];
+  return {
+    kind:'const', name:con.n, type:'Constellation', id:con.id,
+    blurb: (window.SKY_DESC && SKY_DESC.consts[con.id]) || '',
+    altaz(date){
+      if(!mid) return { alt:0, az:0 };
+      return raDecToAltAz(mid[0], mid[1], lat, lon, date);
+    }
   };
 }
 function planetItem(name){
@@ -575,11 +591,67 @@ function moonPhaseName(phase){
   if(p<292.5) return 'Last quarter';
   return 'Waning crescent';
 }
+function designatorInfo(l1){
+  if(!l1 || l1.length<17) return null;
+  const raw = l1.slice(9, 17).trim();
+  const m = raw.match(/^(\d{2})(\d{3})([A-Z]{1,3})$/);
+  if(!m) return null;
+  const yy = +m[1];
+  const year = yy>=57 ? 1900+yy : 2000+yy;
+  return { year, launch:+m[2], piece:m[3], code:`${year}-${m[2]}${m[3]}`, prefix:`${year}-${m[2]}` };
+}
+function debrisOrigin(sat, des){
+  const n = (sat.raw || sat.name || '').toUpperCase();
+  const p = des && des.prefix;
+  if(/IRIDIUM 33 DEB/.test(n) || (p==='1997-051' && /IRIDIUM/.test(n) && /DEB/.test(n)))
+    return 'It is debris from Iridium 33, one of the two satellites destroyed in the February 2009 collision with Cosmos 2251.';
+  if(/COSMOS 2251 DEB/.test(n) || (p==='1993-036' && /DEB/.test(n)))
+    return 'It is debris from Cosmos 2251, destroyed in the February 2009 collision with Iridium 33.';
+  if(/FENGYUN 1C DEB/.test(n) || (p==='1999-025' && /FENGYUN/.test(n) && /DEB/.test(n)))
+    return 'It is debris from Fengyun-1C, a Chinese weather satellite destroyed in a 2007 anti-satellite test.';
+  return '';
+}
+function notableSat(name){
+  const n = name.toUpperCase();
+  if(/\bISS\b|ZARYA/.test(n)) return 'The International Space Station is a crewed laboratory in low Earth orbit, run by NASA, Roscosmos, ESA, JAXA, and CSA.';
+  if(/TIANHE|TIANGONG|WENTIAN|MENGTIAN/.test(n)) return 'This is part of Tiangong, China’s space station: Tianhe is the core module launched in 2021, and Wentian and Mengtian are the science modules.';
+  if(/HUBBLE|\bHST\b/.test(n)) return 'The Hubble Space Telescope is a NASA and ESA observatory, launched in 1990, that orbits above most of the atmosphere.';
+  if(/CREW DRAGON|\bDRAGON\b/.test(n)) return 'Dragon is a SpaceX spacecraft: cargo Dragons carry supplies, and Crew Dragons carry people.';
+  if(/\bSOYUZ\b/.test(n)) return 'Soyuz is a Russian crew spacecraft, flying since the 1960s, that carries people to orbit and back.';
+  if(/\bPROGRESS\b/.test(n)) return 'Progress is an uncrewed Russian cargo ship that delivers supplies to a space station.';
+  return '';
+}
+function satBlurb(sat, look){
+  const notable = notableSat(sat.name);
+  const des = designatorInfo(sat.l1);
+  const origin = debrisOrigin(sat, des);
+  const alt = look && look.altKm!=null ? `about ${Math.round(look.altKm)} km above Earth` : 'in Earth orbit';
+  const spd = look && look.speed!=null ? `, moving at about ${look.speed.toFixed(1)} km/s` : '';
+  let lead = notable;
+  if(!lead){
+    if(sat.group==='starlink' || /STARLINK/i.test(sat.name))
+      lead = `This is a Starlink satellite in SpaceX’s low-Earth-orbit communications constellation, ${alt}${spd}.`;
+    else if(sat.group==='debris')
+      lead = `This is orbital debris, a leftover fragment rather than a working satellite, ${alt}${spd}.`;
+    else if(sat.group==='stations')
+      lead = `This is tracked with space stations and the crew or cargo vehicles that visit them, ${alt}${spd}.`;
+    else if(sat.group==='visual')
+      lead = `This is a bright satellite or rocket body that can sometimes be seen without a telescope, ${alt}${spd}.`;
+    else lead = `This is an object orbiting Earth, ${alt}${spd}.`;
+  }else if(look && look.altKm!=null){
+    lead += ` Right now it is ${alt}${spd}.`;
+  }
+  const bits = [lead];
+  if(origin) bits.push(origin);
+  if(des) bits.push(`Its international designator ${des.code} means piece ${des.piece} of launch ${des.launch} in ${des.year}.`);
+  return bits.join(' ');
+}
 function openCard(item){
   cardItem = item;
   cardEl.hidden = false;
   document.getElementById('cardKicker').textContent = item.type || item.kind;
   document.getElementById('cardTitle').textContent = item.name;
+  const blurb = document.getElementById('cardBlurb');
   const body = document.getElementById('cardBody');
   const now = new Date();
   let pos = '';
@@ -588,11 +660,22 @@ function openCard(item){
     pos = `Alt ${aa.alt.toFixed(0)}° · Az ${pad(aa.az)}° ${cardinal(aa.az)}`;
   }catch(e){}
   if(item.kind==='star'){
+    blurb.textContent = item.blurb || 'A catalogued star.';
     body.textContent = `${item.con ? item.con+' · ' : ''}mag ${item.mag.toFixed(2)} · ${pos}. ${starRiseSet(item.ra, item.dec)}`;
-  }else if(item.kind==='sat'){
+  }else if(item.kind==='const'){
+    blurb.textContent = item.blurb || 'One of the 88 official constellations.';
     body.textContent = pos;
-    setTimeout(()=>{ if(cardItem===item) body.textContent = describePass(item.sat); }, 0);
+  }else if(item.kind==='sat'){
+    blurb.textContent = 'Looking up this satellite…';
+    body.textContent = pos;
+    setTimeout(()=>{
+      if(cardItem!==item) return;
+      const look = satLook(item.sat, new Date());
+      blurb.textContent = satBlurb(item.sat, look);
+      body.textContent = describePass(item.sat);
+    }, 0);
   }else if(window.Astronomy){
+    blurb.textContent = (window.SKY_DESC && SKY_DESC.bodies[item.name]) || '';
     let extra = '';
     try{
       const ill = Astronomy.Illumination(item.body, now);
@@ -603,7 +686,10 @@ function openCard(item){
       }
     }catch(e){}
     body.textContent = `${extra}${extra?' · ':''}${pos}. ${bodyRiseSet(item.body)}`;
-  }else body.textContent = pos;
+  }else{
+    blurb.textContent = '';
+    body.textContent = pos;
+  }
 }
 document.getElementById('cardClose').onclick = ()=>{ cardEl.hidden = true; cardItem = null; };
 document.getElementById('cardGuide').onclick = ()=>{
@@ -633,6 +719,13 @@ function runSearch(){
   if(out.length<8){
     for(const name of PLANETS){
       if(name.toLowerCase().includes(q)) out.push(planetItem(name));
+    }
+  }
+  if(out.length<8){
+    const seen = new Set();
+    for(const con of SKY.consts){
+      if(seen.has(con.id)) continue;
+      if(con.n.toLowerCase().includes(q)){ seen.add(con.id); out.push(constItem(con)); }
     }
   }
   if(out.length<8 && window.satellite){
@@ -863,13 +956,14 @@ function draw(){
         }else started = false;
       });
       if(drew) ctx.stroke();
-      if(vis && showNames>45){
+      if(vis && showNames>20){
         const box = { x:vis.x+8, y:vis.y-8, w:con.n.length*7 };
         if(labelFits(box, placed)){
           placed.push(box);
           ctx.fillStyle = c.dim;
           ctx.font = '12px system-ui';
           ctx.fillText(con.n, vis.x+8, vis.y-6);
+          addHit(vis, 12, constItem(con));
         }
       }
     });
