@@ -2,95 +2,190 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#05070c">
 <title>Sky AR</title>
 <style>
+:root {
+  --fg:#e7eef8; --muted:#93a4ba; --accent:#8fd0ff; --line:rgba(150,186,230,.28);
+  --glass:rgba(7,10,16,.78); --chip:#121820; --danger:#ff8d7a;
+  --shadow:0 10px 30px rgba(0,0,0,.35);
+}
 * { margin:0; padding:0; box-sizing:border-box; }
-html, body { width:100%; height:100%; overflow:hidden; background:#000; color:#fff; font-family:system-ui,sans-serif; }
+html, body { width:100%; height:100%; overflow:hidden; background:#000; color:var(--fg); font-family:system-ui,sans-serif; user-select:none; }
 #video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
-#canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-#hud { position:absolute; top:12px; left:12px; right:12px; z-index:10; font-size:13px; text-shadow:0 1px 2px #000; }
-#status { background:rgba(0,0,0,.6); padding:8px 12px; border-radius:8px; }
-#target { margin-top:4px; font-size:16px; font-weight:600; color:#7cf; }
-#controls { position:absolute; bottom:16px; left:0; right:0; text-align:center; z-index:10; }
-button { background:#1a3a5c; color:#fff; border:1px solid #4af; padding:8px 14px; border-radius:8px; font-size:14px; margin:0 4px; }
-button:active { background:#2a5a8c; }
-#cross { position:absolute; left:50%; top:50%; width:28px; height:28px; margin:-14px 0 0 -14px; border:2px solid rgba(255,255,255,.65); border-radius:50%; pointer-events:none; z-index:5; }
-#cross:before, #cross:after { content:""; position:absolute; background:rgba(255,255,255,.65); }
-#cross:before { left:50%; top:0; width:1px; height:100%; margin-left:-0.5px; }
-#cross:after { top:50%; left:0; height:1px; width:100%; margin-top:-0.5px; }
+#canvas { position:absolute; inset:0; width:100%; height:100%; touch-action:none; }
+#wash { position:absolute; inset:0; pointer-events:none; z-index:3; }
+#reticle { position:absolute; left:50%; top:46%; width:46px; height:46px; transform:translate(-50%,-50%); pointer-events:none; z-index:5; }
+#reticle .ring { position:absolute; inset:0; border:1.5px solid rgba(255,255,255,.8); border-radius:50%; box-shadow:0 0 0 1px rgba(0,0,0,.35); }
+#reticle .ring:before, #reticle .ring:after { content:""; position:absolute; background:rgba(255,255,255,.85); }
+#reticle .ring:before { left:50%; top:-7px; bottom:-7px; width:1px; margin-left:-0.5px; }
+#reticle .ring:after { top:50%; left:-7px; right:-7px; height:1px; margin-top:-0.5px; }
+#reticle .dot { position:absolute; left:50%; top:50%; width:3px; height:3px; margin:-1.5px; border-radius:50%; background:#fff; }
+#lock { position:absolute; left:50%; top:52px; transform:translateX(-50%); white-space:nowrap; font-size:13px; font-weight:600; letter-spacing:.02em; text-shadow:0 1px 3px #000; color:var(--accent); }
+#hud { position:absolute; top:0; left:0; right:0; z-index:12; padding:calc(10px + env(safe-area-inset-top)) 12px 0; display:flex; flex-direction:column; gap:8px; }
+#compass { position:relative; height:46px; overflow:hidden; border-radius:14px; background:var(--glass); border:1px solid var(--line); box-shadow:var(--shadow); }
+#compassRot { position:absolute; inset:0; }
+.tick { position:absolute; top:0; width:0; height:100%; }
+.tick i { position:absolute; left:0; top:7px; width:1px; height:7px; background:var(--muted); }
+.tick.major i { height:12px; background:var(--fg); }
+.tick b { position:absolute; top:22px; left:0; transform:translateX(-50%); font-size:10px; letter-spacing:.08em; color:var(--fg); font-weight:650; }
+#caret { position:absolute; left:50%; top:0; width:2px; height:16px; margin-left:-1px; background:var(--accent); border-radius:1px; }
+#readout { position:absolute; right:8px; top:6px; font-variant-numeric:tabular-nums; font-size:12px; line-height:1.25; text-align:right; color:var(--fg); text-shadow:0 1px 2px #000; }
+#readout span { display:block; color:var(--muted); }
+#readout strong { color:var(--fg); font-weight:650; }
+#searchWrap { position:relative; }
+#search { width:100%; pointer-events:auto; user-select:text; background:var(--glass); color:var(--fg); border:1px solid var(--line); border-radius:12px; padding:10px 12px; font-size:15px; outline:none; }
+#search:focus { border-color:var(--accent); }
+#results { position:absolute; left:0; right:0; top:44px; background:#0c121b; border:1px solid var(--line); border-radius:12px; overflow:hidden; box-shadow:var(--shadow); z-index:20; }
+#results button { display:block; width:100%; text-align:left; background:transparent; color:var(--fg); border:0; border-bottom:1px solid rgba(255,255,255,.05); border-radius:0; padding:10px 12px; font-size:14px; }
+#results button small { display:block; color:var(--muted); font-size:11px; }
+#status { font-size:12px; color:var(--muted); padding:0 4px; min-height:16px; text-shadow:0 1px 2px #000; }
+#dock { position:absolute; left:0; right:0; bottom:0; z-index:16; padding:8px 12px calc(10px + env(safe-area-inset-bottom)); background:linear-gradient(transparent, rgba(0,0,0,.55) 30%, rgba(0,0,0,.72)); }
+#toggles { display:flex; gap:6px; overflow-x:auto; padding-bottom:8px; }
+.chip, button { font:inherit; color:var(--fg); background:var(--chip); border:1px solid var(--line); border-radius:999px; padding:7px 11px; font-size:13px; }
+.chip.on { color:var(--accent); border-color:var(--accent); background:rgba(80,150,210,.16); }
+#tools { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+#tools label { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); flex:1; min-width:140px; }
+#density { flex:1; accent-color:var(--accent); }
+button:active { transform:translateY(1px); }
+#card { position:absolute; left:12px; right:12px; bottom:128px; z-index:18; background:var(--glass); border:1px solid var(--line); border-radius:16px; padding:14px 14px 12px; box-shadow:var(--shadow); backdrop-filter:blur(8px); }
+#card h2 { font-size:20px; font-weight:650; letter-spacing:.01em; }
+#card .kicker { color:var(--accent); font-size:11px; letter-spacing:.14em; text-transform:uppercase; margin-bottom:2px; }
+#card p { margin-top:6px; color:var(--muted); font-size:14px; line-height:1.4; }
+#card .row { display:flex; gap:8px; margin-top:10px; }
+#cardClose { position:absolute; right:8px; top:8px; width:32px; height:32px; border-radius:50%; }
+#onboard { position:absolute; inset:0; z-index:40; background:rgba(2,4,8,.72); display:flex; align-items:flex-end; justify-content:center; padding:16px; }
+#onboard .panel { width:min(440px, 100%); background:#0c121b; border:1px solid var(--line); border-radius:20px; padding:20px 18px 16px; box-shadow:var(--shadow); }
+#onboard h2 { font-size:22px; margin:8px 0 6px; }
+#onboard p { color:var(--muted); font-size:15px; line-height:1.45; }
+#obArt { height:84px; display:flex; align-items:center; justify-content:center; color:var(--accent); }
+#obArt svg { width:150px; height:74px; }
+#obArt path { fill:none; stroke:currentColor; stroke-width:3; stroke-linecap:round; stroke-dasharray:8 10; animation:dash 2.4s linear infinite; }
+@keyframes dash { to { stroke-dashoffset:-180; } }
+#obActions { display:flex; gap:8px; margin-top:16px; }
+#obActions button { flex:1; padding:11px 12px; border-radius:12px; }
+#obNext { background:#1b4f73; border-color:#8fd0ff; }
+body.night { --fg:#ffc9c4; --muted:#e08980; --accent:#ff5c4d; --line:rgba(255,90,70,.4); --glass:rgba(28,4,4,.82); --chip:#240a0a; }
+body.night #video { filter:grayscale(.35) brightness(.5); }
+body.night #wash { background:rgba(90,0,0,.34); }
+body.night #obNext { background:#6a2018; border-color:#ff5c4d; }
+[hidden] { display:none !important; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/astronomy-engine@2.1.19/astronomy.browser.min.js" onerror="(window.__skyLibError=window.__skyLibError||[]).push('astronomy-engine')"></script>
-<script src="https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js" onerror="(window.__skyLibError=window.__skyLibError||[]).push('satellite.js')"></script>
+<script src="vendor/astronomy.browser.min.js" onerror="(window.__skyLibError=window.__skyLibError||[]).push('astronomy-engine')"></script>
+<script src="vendor/satellite.min.js" onerror="(window.__skyLibError=window.__skyLibError||[]).push('satellite.js')"></script>
+<script src="catalog.js" onerror="(window.__skyLibError=window.__skyLibError||[]).push('catalog')"></script>
 </head>
 <body>
 <video id="video" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
-<div id="cross"></div>
+<div id="wash"></div>
+<div id="reticle" aria-hidden="true"><div class="ring"></div><div class="dot"></div><div id="lock"></div></div>
 <div id="hud">
-  <div id="status">Initializing…</div>
-  <div id="target"></div>
+  <div id="compass"><div id="compassRot"></div><div id="caret"></div><div id="readout"><strong id="azRead">—</strong><span id="altRead">Alt —</span></div></div>
+  <div id="searchWrap">
+    <input id="search" type="search" placeholder="Search star, planet, or satellite" autocomplete="off" enterkeyhint="search">
+    <div id="results" hidden></div>
+  </div>
+  <div id="status">Starting…</div>
 </div>
-<div id="controls">
-  <button id="btnStart">Start Sensors</button>
-  <button id="btnCal">Calibrate North</button>
-  <button id="btnSats">Load Sats</button>
+<div id="card" hidden>
+  <button id="cardClose" type="button" aria-label="Close">×</button>
+  <div class="kicker" id="cardKicker"></div>
+  <h2 id="cardTitle"></h2>
+  <p id="cardBody"></p>
+  <div class="row"><button id="cardGuide" type="button">Guide me</button></div>
+</div>
+<div id="dock">
+  <div id="toggles"></div>
+  <div id="tools">
+    <label>Labels <input id="density" type="range" min="0" max="100" value="55"></label>
+    <button id="btnNight" type="button">Night</button>
+    <button id="btnStart" type="button">Sensors</button>
+    <button id="btnCal" type="button">Calibrate</button>
+    <button id="btnUpdate" type="button">Update TLEs</button>
+  </div>
+</div>
+<div id="onboard" hidden>
+  <div class="panel">
+    <div id="obArt"></div>
+    <h2 id="obTitle"></h2>
+    <p id="obText"></p>
+    <div id="obActions"></div>
+  </div>
 </div>
 <script>
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const statusEl = document.getElementById('status');
-const targetEl = document.getElementById('target');
+const azRead = document.getElementById('azRead');
+const altRead = document.getElementById('altRead');
+const lockEl = document.getElementById('lock');
+const searchEl = document.getElementById('search');
+const resultsEl = document.getElementById('results');
+const cardEl = document.getElementById('card');
 const btnStart = document.getElementById('btnStart');
 const btnCal = document.getElementById('btnCal');
-const btnSats = document.getElementById('btnSats');
+const btnUpdate = document.getElementById('btnUpdate');
+const btnNight = document.getElementById('btnNight');
+const densityEl = document.getElementById('density');
+const compassRot = document.getElementById('compassRot');
+const compass = document.getElementById('compass');
+
+const SKY = window.SKY || { stars: [], consts: [] };
+const CON_NAME = Object.fromEntries((SKY.consts||[]).map(c => [c.id, c.n]));
+const PLANETS = ['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Uranus','Neptune'];
+const GROUPS = [
+  { id:'stations', label:'ISS/Stations', cap:70 },
+  { id:'visual', label:'Visual', cap:80 },
+  { id:'starlink', label:'Starlink', cap:50 },
+  { id:'debris', label:'Debris', cap:40 }
+];
+const ALIAS = { schedar:'shedar', schedir:'shedar' };
+const FOV_H = 55;
+const CACHE_KEY = 'skyar-tle-v1';
 
 let lat = 38.58, lon = -121.49;
-let heading = 0, pitch = 0;
 let headingOffset = 0;
 let ready = false;
 let camStream = null;
 let wakeLock = null;
-let sats = [];
-let satsLoading = false;
 let rawAz = 0;
 let orient = { alpha: 0, beta: 90, gamma: 0 };
 let orientBound = false;
-let lastStatus = 'Initializing…';
+let smoothQ = null;
+let lastStatus = 'Starting…';
 let notices = [];
 let framePending = false;
-const FOV_H = 55;
-const SATS_PER_GROUP = 40;
+let labelMag = 2.2;
+let night = false;
+let enabled = { stations:true, visual:true, starlink:false, debris:false };
+let groups = {};
+let satsLoading = false;
+let guide = null;
+let cardItem = null;
+let hits = [];
+let searchHits = [];
+let cssW = 1, cssH = 1;
 
-// Expanded bright stars [ra_h, dec_deg, mag, name]
-const STARS = [
-  [6.752, -16.72, -1.46, "Sirius"], [0.139, 29.09, 2.06, "Alpheratz"],
-  [5.242, -8.20, 0.50, "Rigel"], [5.919, 7.41, 0.42, "Betelgeuse"],
-  [5.278, 45.99, 0.08, "Capella"], [7.655, 5.22, 0.37, "Procyon"],
-  [11.062, 61.75, 1.79, "Dubhe"], [13.398, 54.93, 2.23, "Mizar"],
-  [18.615, 38.78, 0.03, "Vega"], [19.846, 8.87, 0.77, "Altair"],
-  [20.690, 45.28, 1.25, "Deneb"], [14.261, 19.18, 2.14, "Arcturus"],
-  [16.490, -26.43, 1.06, "Antares"], [22.096, -47.29, 0.01, "Achernar"],
-  [6.399, -52.70, -0.74, "Canopus"], [4.598, 16.51, 0.85, "Aldebaran"],
-  [7.576, 31.89, 1.16, "Pollux"], [10.140, 11.97, 1.35, "Regulus"],
-  [12.900, 55.96, 1.77, "Alioth"], [0.675, 56.54, 2.24, "Schedar"]
-];
-
-const CONSTELLATIONS = [
-  { name: "Orion", stars: [[5.242,-8.20,0.5],[5.919,7.41,0.4],[5.418,6.35,1.6],[5.796,-9.67,2.1],[5.603,-1.20,1.7]] },
-  { name: "Ursa Major", stars: [[11.062,61.75,1.8],[11.897,53.69,2.4],[12.257,57.03,2.3],[12.900,55.96,1.8],[13.398,54.93,2.2]] },
-  { name: "Cassiopeia", stars: [[0.153,59.15,2.3],[0.675,56.54,2.2],[0.945,60.72,2.2],[1.430,60.24,2.7],[1.906,63.67,3.4]] },
-  { name: "Cygnus", stars: [[20.690,45.28,1.25],[20.370,40.26,2.23],[19.512,27.96,3.05]] },
-  { name: "Scorpius", stars: [[16.490,-26.43,1.1],[16.836,-34.29,2.3],[17.202,-37.10,2.6]] },
-  { name: "Leo", stars: [[10.140,11.97,1.4],[11.235,20.52,2.1]] }
-];
-
-const PLANETS = ["Sun","Moon","Mercury","Venus","Mars","Jupiter","Saturn","Uranus","Neptune"];
-
-function toRad(d){return d*Math.PI/180;}
-function toDeg(r){return r*180/Math.PI;}
-function norm(a){a=a%360;return a<0?a+360:a;}
+function toRad(d){ return d*Math.PI/180; }
+function toDeg(r){ return r*180/Math.PI; }
+function norm(a){ a%=360; return a<0?a+360:a; }
+function lerpAngle(a, b, t){
+  const d = ((b - a + 540) % 360) - 180;
+  return a + d * t;
+}
+function cardinal(deg){
+  const names = ['N','NE','E','SE','S','SW','W','NW'];
+  return names[Math.round(norm(deg)/45) % 8];
+}
+function pad(n){ n = Math.round(norm(n)); return String(n).padStart(3,'0'); }
+function clock(date){
+  if(!date) return '—';
+  const d = date.date || date;
+  return d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
+}
 
 function raDecToAltAz(raH, decDeg, latDeg, lonDeg, date){
   const jd = date.getTime()/86400000 + 2440587.5;
@@ -104,28 +199,33 @@ function raDecToAltAz(raH, decDeg, latDeg, lonDeg, date){
   const haR=toRad(ha), decR=toRad(decDeg), latR=toRad(latDeg);
   const sinAlt = Math.sin(latR)*Math.sin(decR) + Math.cos(latR)*Math.cos(decR)*Math.cos(haR);
   const alt = Math.asin(Math.max(-1,Math.min(1,sinAlt)));
-  const cosAz = (Math.sin(decR) - Math.sin(latR)*sinAlt)/(Math.cos(latR)*Math.cos(alt));
+  const cosAz = (Math.sin(decR) - Math.sin(latR)*sinAlt)/(Math.cos(latR)*Math.cos(alt) || 1e-6);
   let az = Math.acos(Math.max(-1,Math.min(1,cosAz)));
   if(Math.sin(haR)>0) az = 2*Math.PI - az;
-  return {alt:toDeg(alt), az:toDeg(az)};
+  return { alt:toDeg(alt), az:toDeg(az) };
+}
+function lstHours(date, lonDeg){
+  const jd = date.getTime()/86400000 + 2440587.5;
+  const d = jd - 2451545.0;
+  let gmst = 18.697374558 + 24.06570982441908 * d;
+  gmst = ((gmst%24)+24)%24;
+  return ((gmst + lonDeg/15)%24 + 24)%24;
+}
+function starRiseSet(raH, dec){
+  const cosH = -Math.tan(toRad(lat))*Math.tan(toRad(dec));
+  if(cosH > 1) return 'Never rises here';
+  if(cosH < -1) return 'Circumpolar — always up';
+  const H = toDeg(Math.acos(Math.max(-1,Math.min(1,cosH))))/15;
+  const ha = ((lstHours(new Date(), lon) - raH)%24 + 24)%24;
+  const until = target => {
+    let dt = ((target - ha)%24 + 24)%24;
+    return dt / 1.0027379;
+  };
+  const rise = new Date(Date.now() + until((24-H)%24)*3600000);
+  const set = new Date(Date.now() + until(H)*3600000);
+  return `Rises ${clock(rise)} · Sets ${clock(set)}`;
 }
 
-function renderStatus(){
-  const extra = notices.map(n=>n.msg).filter(Boolean).join('; ');
-  statusEl.textContent = extra ? `${lastStatus} — ${extra}` : lastStatus;
-}
-function setStatus(msg){
-  lastStatus = msg;
-  renderStatus();
-}
-function setNotice(key, msg){
-  notices = notices.filter(n=>n.key!==key);
-  if(msg) notices.push({key, msg});
-  renderStatus();
-}
-
-// W3C deviceorientation maps device axes to east/north/up.
-// Rear camera looks along device -Z, so its elevation is -cos(beta)*cos(gamma).
 function orientationMatrix(alphaDeg, betaDeg, gammaDeg){
   const cX = Math.cos(toRad(betaDeg)), sX = Math.sin(toRad(betaDeg));
   const cY = Math.cos(toRad(gammaDeg)), sY = Math.sin(toRad(gammaDeg));
@@ -138,49 +238,118 @@ function orientationMatrix(alphaDeg, betaDeg, gammaDeg){
 }
 function cameraAltAz(m){
   const e = -m[2], n = -m[5], u = -m[8];
-  const alt = toDeg(Math.atan2(u, Math.hypot(e, n)));
-  return { alt, az: norm(toDeg(Math.atan2(e, n))) };
+  return { alt: toDeg(Math.atan2(u, Math.hypot(e, n))), az: norm(toDeg(Math.atan2(e, n))) };
+}
+function mToQuat(m){
+  const m00=m[0], m01=m[1], m02=m[2], m10=m[3], m11=m[4], m12=m[5], m20=m[6], m21=m[7], m22=m[8];
+  const tr = m00+m11+m22;
+  let x,y,z,w;
+  if(tr>0){
+    const S = Math.sqrt(tr+1)*2;
+    w=0.25*S; x=(m21-m12)/S; y=(m02-m20)/S; z=(m10-m01)/S;
+  }else if(m00>m11 && m00>m22){
+    const S = Math.sqrt(1+m00-m11-m22)*2;
+    w=(m21-m12)/S; x=0.25*S; y=(m01+m10)/S; z=(m02+m20)/S;
+  }else if(m11>m22){
+    const S = Math.sqrt(1+m11-m00-m22)*2;
+    w=(m02-m20)/S; x=(m01+m10)/S; y=0.25*S; z=(m12+m21)/S;
+  }else{
+    const S = Math.sqrt(1+m22-m00-m11)*2;
+    w=(m10-m01)/S; x=(m02+m20)/S; y=(m12+m21)/S; z=0.25*S;
+  }
+  return {x,y,z,w};
+}
+function quatToM(q){
+  let {x,y,z,w}=q;
+  const n = Math.hypot(x,y,z,w)||1;
+  x/=n; y/=n; z/=n; w/=n;
+  const xx=x*x, yy=y*y, zz=z*z, xy=x*y, xz=x*z, yz=y*z, wx=w*x, wy=w*y, wz=w*z;
+  return [
+    1-2*(yy+zz), 2*(xy-wz), 2*(xz+wy),
+    2*(xy+wz), 1-2*(xx+zz), 2*(yz-wx),
+    2*(xz-wy), 2*(yz+wx), 1-2*(xx+yy)
+  ];
+}
+function slerp(a, b, t){
+  let ax=a.x, ay=a.y, az=a.z, aw=a.w, bx=b.x, by=b.y, bz=b.z, bw=b.w;
+  let cos = ax*bx+ay*by+az*bz+aw*bw;
+  if(cos<0){ bx=-bx; by=-by; bz=-bz; bw=-bw; cos=-cos; }
+  if(cos>0.9995){
+    const x=ax+(bx-ax)*t, y=ay+(by-ay)*t, z=az+(bz-az)*t, w=aw+(bw-aw)*t;
+    return {x,y,z,w};
+  }
+  const theta = Math.acos(Math.min(1,cos));
+  const s = Math.sin(theta);
+  const w1 = Math.sin((1-t)*theta)/s, w2 = Math.sin(t*theta)/s;
+  return { x:ax*w1+bx*w2, y:ay*w1+by*w2, z:az*w1+bz*w2, w:aw*w1+bw*w2 };
 }
 function screenAngle(){
-  if(screen.orientation && typeof screen.orientation.angle==='number'){
-    return ((screen.orientation.angle % 360) + 360) % 360;
-  }
-  if(typeof window.orientation==='number') return ((-window.orientation % 360) + 360) % 360;
+  if(screen.orientation && typeof screen.orientation.angle==='number') return ((screen.orientation.angle%360)+360)%360;
+  if(typeof window.orientation==='number') return ((-window.orientation%360)+360)%360;
   return 0;
 }
 function deviceToScreen(dx, dy, angle){
   switch(angle){
-    case 90: return { x: -dy, y: -dx };
-    case 180: return { x: -dx, y: dy };
-    case 270: return { x: dy, y: dx };
-    default: return { x: dx, y: -dy };
+    case 90: return { x:-dy, y:-dx };
+    case 180: return { x:-dx, y:dy };
+    case 270: return { x:dy, y:dx };
+    default: return { x:dx, y:-dy };
   }
 }
-function viewMatrix(){
-  return orientationMatrix(orient.alpha - headingOffset, orient.beta, orient.gamma);
+function frameMatrix(){
+  const target = orientationMatrix(orient.alpha - headingOffset, orient.beta, orient.gamma);
+  const tq = mToQuat(target);
+  smoothQ = smoothQ ? slerp(smoothQ, tq, 0.18) : tq;
+  return quatToM(smoothQ);
 }
-function projectSky(alt, az, m, w, h){
-  if(alt<0) return {x:0, y:0, visible:false};
+function projectSky(alt, az, m, w, h, allowBelow){
+  const below = alt<0;
+  if(below && !allowBelow) return { x:0, y:0, visible:false, dirx:0, diry:0 };
   const altR = toRad(alt), azR = toRad(az);
   const c = Math.cos(altR);
   const e = c*Math.sin(azR), n = c*Math.cos(azR), u = Math.sin(altR);
   const dx = m[0]*e + m[3]*n + m[6]*u;
   const dy = m[1]*e + m[4]*n + m[7]*u;
   const dz = m[2]*e + m[5]*n + m[8]*u;
-  if(dz >= -1e-3) return {x:0, y:0, visible:false};
-  const depth = -dz;
   const s = deviceToScreen(dx, dy, screenAngle());
+  const front = dz < -1e-3;
+  const dirx = front ? s.x : -s.x;
+  const diry = front ? s.y : -s.y;
+  const depth = front ? -dz : 1;
   const f = (w/2) / Math.tan(toRad(FOV_H/2));
-  const x = w/2 + (s.x/depth)*f;
-  const y = h/2 + (s.y/depth)*f;
-  return {x, y, visible: x>=-40 && x<=w+40 && y>=-40 && y<=h+40};
+  const x = w/2 + (dirx/depth)*f;
+  const y = h/2 + (diry/depth)*f;
+  const visible = !below && front && x>=-40 && x<=w+40 && y>=-40 && y<=h+40;
+  return { x, y, visible, dirx, diry };
+}
+
+function renderStatus(){
+  const extra = notices.map(n=>n.msg).filter(Boolean).join('; ');
+  statusEl.textContent = extra ? `${lastStatus} — ${extra}` : lastStatus;
+}
+function setStatus(msg){ lastStatus = msg; renderStatus(); }
+function setNotice(key, msg){
+  notices = notices.filter(n=>n.key!==key);
+  if(msg) notices.push({key, msg});
+  renderStatus();
+}
+function pal(){
+  if(night) return { star:'#ffd0c8', line:'rgba(255,120,100,.55)', label:'#ffb0a6', planet:'#ff8a78', sun:'#ffb060', moon:'#ffe0d8', stations:'#ff6a5a', visual:'#ff9470', starlink:'#ff4d3a', debris:'#e07050', guide:'#ff5c4d', dim:'#7a4038' };
+  return { star:'#fff', line:'rgba(150,190,255,.62)', label:'#d5e4f5', planet:'#ffb15a', sun:'#ffe08a', moon:'#f4f1e8', stations:'#3dff9a', visual:'#ff5d73', starlink:'#7ec8ff', debris:'#ffb020', guide:'#8fd0ff', dim:'#9eb0c6' };
+}
+
+function reportLibraries(){
+  const missing = [];
+  if(!window.Astronomy) missing.push('astronomy-engine');
+  if(!window.satellite) missing.push('satellite.js');
+  if(!window.SKY) missing.push('catalog');
+  (window.__skyLibError||[]).forEach(name=>{ if(!missing.includes(name)) missing.push(name); });
+  if(missing.length) setNotice('lib', 'Library failed: '+missing.join(', '));
+  setStatus(missing.length ? 'Libraries unavailable' : 'Ready');
 }
 
 async function requestWakeLock(){
-  if(!('wakeLock' in navigator)){
-    setNotice('wake', 'Wake Lock not supported');
-    return;
-  }
+  if(!('wakeLock' in navigator)){ setNotice('wake', 'Wake Lock not supported'); return; }
   try{
     wakeLock = await navigator.wakeLock.request('screen');
     wakeLock.addEventListener('release', ()=>{ wakeLock=null; });
@@ -190,11 +359,10 @@ async function requestWakeLock(){
     setNotice('wake', `Wake Lock failed: ${e && (e.message || e.name) || 'unavailable'}`);
   }
 }
-
 async function startCamera(){
   try{
     camStream = await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},
+      video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } },
       audio:false
     });
     video.srcObject = camStream;
@@ -202,14 +370,12 @@ async function startCamera(){
     setStatus('Camera unavailable. Overlay only.');
   }
 }
-
 function bindOrientation(){
   if(orientBound) return;
   orientBound = true;
   const eventName = ('ondeviceorientationabsolute' in window) ? 'deviceorientationabsolute' : 'deviceorientation';
   window.addEventListener(eventName, onOrient, true);
 }
-
 async function startSensors(){
   if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
     const perm = await DeviceOrientationEvent.requestPermission();
@@ -220,21 +386,16 @@ async function startSensors(){
     lat=pos.coords.latitude; lon=pos.coords.longitude;
     setStatus(`Loc ${lat.toFixed(2)}, ${lon.toFixed(2)}`);
     ready=true;
-  }, ()=>{ setStatus('Using default location'); ready=true; }, {enableHighAccuracy:true,timeout:6000});
+  }, ()=>{ setStatus('Using default location'); ready=true; }, { enableHighAccuracy:true, timeout:8000 });
 }
-
 function onOrient(e){
   let alpha = e.alpha;
   if(e.webkitCompassHeading!=null && !isNaN(e.webkitCompassHeading)) alpha = norm(360 - e.webkitCompassHeading);
   if(alpha==null || e.beta==null || isNaN(alpha) || isNaN(e.beta)) return;
   const gamma = (e.gamma==null || isNaN(e.gamma)) ? 0 : e.gamma;
-  orient = { alpha, beta: e.beta, gamma };
-  const cam = cameraAltAz(orientationMatrix(alpha, e.beta, gamma));
-  rawAz = cam.az;
-  heading = norm(cam.az + headingOffset);
-  pitch = cam.alt;
+  orient = { alpha, beta:e.beta, gamma };
+  rawAz = cameraAltAz(orientationMatrix(alpha, e.beta, gamma)).az;
 }
-
 btnStart.onclick = async ()=>{
   if(btnStart.disabled) return;
   btnStart.disabled = true;
@@ -244,10 +405,9 @@ btnStart.onclick = async ()=>{
 };
 btnCal.onclick = ()=>{
   headingOffset = norm(-rawAz);
-  heading = norm(rawAz + headingOffset);
+  try{ localStorage.setItem('skyar-offset', String(headingOffset)); }catch(e){}
   setStatus('Calibrated');
 };
-
 document.addEventListener('visibilitychange', async ()=>{
   if(document.visibilityState==='visible'){
     scheduleDraw();
@@ -255,68 +415,358 @@ document.addEventListener('visibilitychange', async ()=>{
   }
 });
 
-async function loadSats(){
-  if(satsLoading) return;
-  if(!window.satellite){
-    setStatus('satellite.js failed to load');
-    return;
+function parseTleText(text, group, cap){
+  const lines = text.trim().split(/\r?\n/);
+  const out = [];
+  for(let i=0; i<lines.length-2 && out.length<cap; i+=3){
+    const name = lines[i].trim();
+    const l1 = lines[i+1].trim();
+    const l2 = lines[i+2].trim();
+    if(!(l1.startsWith('1 ') && l2.startsWith('2 '))) continue;
+    try{
+      const satrec = satellite.twoline2satrec(l1, l2);
+      if(satrec && !satrec.error){
+        const display = /ZARYA/i.test(name) ? 'ISS (ZARYA)' : name.replace(/\s+/g,' ');
+        out.push({ name:display, raw:name, l1, l2, satrec, group });
+      }
+    }catch(e){}
   }
+  return out;
+}
+function cacheAll(){
+  const blob = {};
+  GROUPS.forEach(g=>{
+    const list = groups[g.id]||[];
+    if(list.length) blob[g.id] = list.map(s=>({ name:s.raw||s.name, l1:s.l1, l2:s.l2 }));
+  });
+  try{ localStorage.setItem(CACHE_KEY, JSON.stringify(blob)); }
+  catch(e){ setNotice('cache', 'TLE cache is full'); }
+}
+function loadCachedTles(){
+  let blob = {};
+  try{ blob = JSON.parse(localStorage.getItem(CACHE_KEY)||'{}'); }catch(e){ blob = {}; }
+  let n = 0;
+  GROUPS.forEach(g=>{
+    const rows = blob[g.id];
+    if(!rows || !rows.length || !window.satellite) return;
+    const text = rows.map(r=>`${r.name}\n${r.l1}\n${r.l2}`).join('\n');
+    groups[g.id] = parseTleText(text, g.id, g.cap);
+    n += groups[g.id].length;
+  });
+  if(n) setStatus(`Cached ${n} objects`);
+}
+async function refreshTles(quiet){
+  if(satsLoading) return;
+  if(!window.satellite){ setStatus('satellite.js failed to load'); return; }
   satsLoading = true;
-  btnSats.disabled = true;
-  setStatus('Loading satellites…');
-  const groups = ['stations','visual'];
-  const next = [];
+  btnUpdate.disabled = true;
+  if(!quiet) setStatus('Updating satellites…');
   const problems = [];
+  let fresh = 0;
   try{
-    for(const g of groups){
+    for(const g of GROUPS){
       try{
-        const res = await fetch(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${g}&FORMAT=tle`);
-        if(!res.ok){
-          problems.push(`${g} HTTP ${res.status}`);
-          continue;
-        }
+        const ctrl = typeof AbortSignal!=='undefined' && AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined;
+        const res = await fetch(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${g.id}&FORMAT=tle`, ctrl?{signal:ctrl}:undefined);
+        if(!res.ok){ problems.push(`${g.label} HTTP ${res.status}`); continue; }
         const text = await res.text();
-        const lines = text.trim().split('\n');
-        let kept = 0;
-        for(let i=0; i<lines.length-2 && kept<SATS_PER_GROUP; i+=3){
-          const name = lines[i].trim();
-          const l1 = lines[i+1].trim();
-          const l2 = lines[i+2].trim();
-          if(!(l1.startsWith('1 ') && l2.startsWith('2 '))) continue;
-          try{
-            const satrec = satellite.twoline2satrec(l1, l2);
-            if(satrec && !satrec.error){
-              next.push({name, satrec, type:g});
-              kept++;
-            }
-          }catch(e){}
-        }
+        const parsed = parseTleText(text, g.id, g.cap);
+        if(parsed.length){ groups[g.id] = parsed; fresh += parsed.length; }
+        else problems.push(`${g.label} empty`);
       }catch(e){
-        console.warn(g, e);
-        problems.push(`${g} failed`);
+        problems.push(`${g.label} offline`);
       }
     }
-    sats = next;
-    const summary = `Loaded ${sats.length} objects`;
-    setStatus(problems.length ? `${summary} (${problems.join(', ')})` : summary);
+    if(fresh) cacheAll();
+    const cached = GROUPS.reduce((n,g)=>n+(groups[g.id]?groups[g.id].length:0),0);
+    if(fresh) setStatus(problems.length ? `Updated ${fresh} (${problems.join(', ')})` : `Updated ${fresh} objects`);
+    else if(cached) setStatus(problems.length ? `Using cached TLEs (${problems.join(', ')})` : `Cached ${cached} objects`);
+    else setStatus(problems.length ? `TLE update failed (${problems.join(', ')})` : 'No satellites');
   }finally{
     satsLoading = false;
-    btnSats.disabled = false;
+    btnUpdate.disabled = false;
   }
 }
-btnSats.onclick = loadSats;
+btnUpdate.onclick = ()=>refreshTles(false);
 
-function reportLibraries(){
-  const missing = [];
-  if(!window.Astronomy) missing.push('astronomy-engine');
-  if(!window.satellite) missing.push('satellite.js');
-  (window.__skyLibError||[]).forEach(name=>{ if(!missing.includes(name)) missing.push(name); });
-  if(missing.length) setNotice('cdn', `CDN failed: ${missing.join(', ')}`);
-  setStatus(missing.length ? 'Libraries unavailable' : 'Ready');
+function visibleSats(){
+  const list = [];
+  GROUPS.forEach(g=>{ if(enabled[g.id] && groups[g.id]) list.push(...groups[g.id]); });
+  return list;
 }
-reportLibraries();
+function satLook(sat, date){
+  const pv = satellite.propagate(sat.satrec, date);
+  if(!pv || !pv.position) return null;
+  const gmst = satellite.gstime(date);
+  const posEcf = satellite.eciToEcf(pv.position, gmst);
+  const look = satellite.ecfToLookAngles({ longitude:toRad(lon), latitude:toRad(lat), height:0.1 }, posEcf);
+  const r = Math.hypot(pv.position.x, pv.position.y, pv.position.z);
+  let speed = null;
+  if(pv.velocity) speed = Math.hypot(pv.velocity.x, pv.velocity.y, pv.velocity.z);
+  return { alt:toDeg(look.elevation), az:toDeg(look.azimuth), altKm:r-6371, speed };
+}
+function describePass(sat){
+  const now = new Date();
+  let max = null, riseAt = null, prev = null;
+  for(let t=0; t<=8*3600; t+=60){
+    const date = new Date(now.getTime()+t*1000);
+    const look = satLook(sat, date);
+    if(!look) continue;
+    if(prev!=null && prev<0 && look.alt>=0 && !riseAt) riseAt = date;
+    if(look.alt>0 && (!max || look.alt>max.el)) max = { el:look.alt, date };
+    prev = look.alt;
+  }
+  const cur = satLook(sat, now);
+  const bits = [];
+  if(cur){
+    if(cur.altKm!=null) bits.push(`${Math.round(cur.altKm)} km`);
+    if(cur.speed!=null) bits.push(`${cur.speed.toFixed(1)} km/s`);
+    bits.push(cur.alt>=0 ? `Up ${cur.alt.toFixed(0)}°` : `Below horizon ${cur.alt.toFixed(0)}°`);
+  }
+  if(max) bits.push(`Peak ${max.el.toFixed(0)}° at ${clock(max.date)}`);
+  else if(riseAt) bits.push(`Rises ${clock(riseAt)}`);
+  else bits.push('No pass above the horizon in 8h');
+  return bits.join(' · ');
+}
 
-function resize(){ canvas.width=window.innerWidth; canvas.height=window.innerHeight; }
+function starItem(s){
+  return {
+    kind:'star', name:s[3] || 'Star', type:'Star', mag:s[2], ra:s[0], dec:s[1],
+    con: CON_NAME[s[4]] || s[4] || '',
+    altaz(date){ return raDecToAltAz(s[0], s[1], lat, lon, date); }
+  };
+}
+function planetItem(name){
+  return {
+    kind: name==='Moon' ? 'moon' : name==='Sun' ? 'sun' : 'planet',
+    name, type: name==='Moon' ? 'Moon' : name==='Sun' ? 'Sun' : 'Planet', body:name,
+    altaz(date){
+      const obs = new Astronomy.Observer(lat, lon, 0);
+      const equ = Astronomy.Equator(name, date, obs, true, true);
+      const hor = Astronomy.Horizon(date, obs, equ.ra, equ.dec, 'normal');
+      return { alt:hor.altitude, az:hor.azimuth };
+    }
+  };
+}
+function satItem(sat){
+  const typeName = { stations:'Station', visual:'Visual', starlink:'Starlink', debris:'Debris' }[sat.group] || 'Satellite';
+  return {
+    kind:'sat', name:sat.name, type:typeName, group:sat.group, sat,
+    altaz(date){ const look = satLook(sat, date); return look || { alt:-90, az:0 }; }
+  };
+}
+function bodyRiseSet(name){
+  try{
+    const obs = new Astronomy.Observer(lat, lon, 0);
+    const now = new Date();
+    const rise = Astronomy.SearchRiseSet(name, obs, +1, now, 1.5);
+    const set = Astronomy.SearchRiseSet(name, obs, -1, now, 1.5);
+    return `Rises ${clock(rise)} · Sets ${clock(set)}`;
+  }catch(e){ return 'Rise/set unavailable'; }
+}
+function moonPhaseName(phase){
+  const p = norm(phase);
+  if(p<22.5 || p>=337.5) return 'New moon';
+  if(p<67.5) return 'Waxing crescent';
+  if(p<112.5) return 'First quarter';
+  if(p<157.5) return 'Waxing gibbous';
+  if(p<202.5) return 'Full moon';
+  if(p<247.5) return 'Waning gibbous';
+  if(p<292.5) return 'Last quarter';
+  return 'Waning crescent';
+}
+function openCard(item){
+  cardItem = item;
+  cardEl.hidden = false;
+  document.getElementById('cardKicker').textContent = item.type || item.kind;
+  document.getElementById('cardTitle').textContent = item.name;
+  const body = document.getElementById('cardBody');
+  const now = new Date();
+  let pos = '';
+  try{
+    const aa = item.altaz(now);
+    pos = `Alt ${aa.alt.toFixed(0)}° · Az ${pad(aa.az)}° ${cardinal(aa.az)}`;
+  }catch(e){}
+  if(item.kind==='star'){
+    body.textContent = `${item.con ? item.con+' · ' : ''}mag ${item.mag.toFixed(2)} · ${pos}. ${starRiseSet(item.ra, item.dec)}`;
+  }else if(item.kind==='sat'){
+    body.textContent = pos;
+    setTimeout(()=>{ if(cardItem===item) body.textContent = describePass(item.sat); }, 0);
+  }else if(window.Astronomy){
+    let extra = '';
+    try{
+      const ill = Astronomy.Illumination(item.body, now);
+      extra = `mag ${ill.mag.toFixed(1)}`;
+      if(item.kind==='moon'){
+        const phase = Astronomy.MoonPhase(now);
+        extra = `${moonPhaseName(phase)} · ${Math.round(ill.phase_fraction*100)}% lit · mag ${ill.mag.toFixed(1)}`;
+      }
+    }catch(e){}
+    body.textContent = `${extra}${extra?' · ':''}${pos}. ${bodyRiseSet(item.body)}`;
+  }else body.textContent = pos;
+}
+document.getElementById('cardClose').onclick = ()=>{ cardEl.hidden = true; cardItem = null; };
+document.getElementById('cardGuide').onclick = ()=>{
+  if(!cardItem) return;
+  guide = cardItem;
+  setStatus(`Guiding to ${guide.name}`);
+};
+
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function normQuery(q){
+  q = q.trim().toLowerCase();
+  return ALIAS[q] || q;
+}
+function labelMatches(label, q){
+  const name = label.toLowerCase();
+  if(name.includes(q)) return true;
+  return Object.keys(ALIAS).some(alias => ALIAS[alias]===name && alias.includes(q));
+}
+function runSearch(){
+  const q = normQuery(searchEl.value);
+  if(!q){ resultsEl.hidden = true; searchHits = []; if(guide && searchEl.value==='') guide = null; return; }
+  const out = [];
+  for(const s of SKY.stars){
+    if(s[3] && labelMatches(s[3], q)) out.push(starItem(s));
+    if(out.length>=6) break;
+  }
+  if(out.length<8){
+    for(const name of PLANETS){
+      if(name.toLowerCase().includes(q)) out.push(planetItem(name));
+    }
+  }
+  if(out.length<8 && window.satellite){
+    for(const sat of visibleSats()){
+      if(sat.name.toLowerCase().includes(q)){ out.push(satItem(sat)); if(out.length>=8) break; }
+    }
+  }
+  searchHits = out.slice(0,8);
+  resultsEl.innerHTML = searchHits.map((it,i)=>`<button type="button" data-i="${i}">${esc(it.name)}<small>${esc(it.type)}${it.con?(' · '+esc(it.con)):''}${it.mag!=null?(' · mag '+it.mag.toFixed(1)):''}</small></button>`).join('') || '<button type="button" disabled>No match</button>';
+  resultsEl.hidden = false;
+}
+searchEl.addEventListener('input', runSearch);
+resultsEl.addEventListener('click', (e)=>{
+  const btn = e.target.closest('[data-i]');
+  if(!btn) return;
+  const item = searchHits[+btn.dataset.i];
+  if(!item) return;
+  guide = item;
+  openCard(item);
+  searchEl.value = item.name;
+  resultsEl.hidden = true;
+  setStatus(`Guiding to ${item.name}`);
+});
+
+function buildCompass(){
+  const px = 2.6;
+  let html = '';
+  for(let d=-360; d<=720; d+=15){
+    const deg = norm(d);
+    const major = deg%45===0;
+    html += `<span class="tick${major?' major':''}" style="left:${d*px}px"><i></i>${major?`<b>${cardinal(deg)}</b>`:''}</span>`;
+  }
+  compassRot.innerHTML = html;
+  compassRot.dataset.px = String(px);
+}
+function updateCompass(az){
+  const px = +compassRot.dataset.px || 2.6;
+  const view = compass.clientWidth || 300;
+  compassRot.style.transform = `translateX(${view/2 - az*px}px)`;
+  azRead.textContent = `${pad(az)}° ${cardinal(az)}`;
+  altRead.textContent = `Alt ${pitchNow>=0?'+':''}${pitchNow.toFixed(0)}°`;
+}
+let pitchNow = 0;
+
+function buildToggles(){
+  const host = document.getElementById('toggles');
+  host.innerHTML = GROUPS.map(g=>`<button type="button" class="chip${enabled[g.id]?' on':''}" data-g="${g.id}" aria-pressed="${enabled[g.id]}">${g.label}</button>`).join('');
+  host.onclick = (e)=>{
+    const btn = e.target.closest('[data-g]');
+    if(!btn) return;
+    const id = btn.dataset.g;
+    enabled[id] = !enabled[id];
+    btn.classList.toggle('on', enabled[id]);
+    btn.setAttribute('aria-pressed', String(enabled[id]));
+    try{ localStorage.setItem('skyar-groups', JSON.stringify(enabled)); }catch(err){}
+  };
+}
+function applyDensity(){
+  labelMag = 0.4 + (Number(densityEl.value)/100)*3.3;
+}
+densityEl.addEventListener('input', ()=>{
+  applyDensity();
+  try{ localStorage.setItem('skyar-density', densityEl.value); }catch(e){}
+});
+btnNight.onclick = ()=>{
+  night = !night;
+  document.body.classList.toggle('night', night);
+  btnNight.classList.toggle('on', night);
+  btnNight.setAttribute('aria-pressed', String(night));
+  try{ localStorage.setItem('skyar-night', night?'1':'0'); }catch(e){}
+};
+function restoreSettings(){
+  try{
+    const off = localStorage.getItem('skyar-offset');
+    if(off!=null && !isNaN(+off)) headingOffset = norm(+off);
+    const d = localStorage.getItem('skyar-density');
+    if(d!=null) densityEl.value = d;
+    night = localStorage.getItem('skyar-night')==='1';
+    document.body.classList.toggle('night', night);
+    btnNight.classList.toggle('on', night);
+    const g = JSON.parse(localStorage.getItem('skyar-groups')||'null');
+    if(g) enabled = Object.assign(enabled, g);
+  }catch(e){}
+  applyDensity();
+}
+
+const ONBOARD = [
+  { title:'Sky AR', text:'Point the phone at the sky. The camera shows the world, and the overlay draws stars, planets, and satellites in that direction.', art:'' },
+  { title:'Permissions', text:'Sensors asks for the camera, your location, and motion. Location sets the sky for where you stand. Motion keeps the overlay glued to the real horizon.', art:'' },
+  { title:'Calibrate the compass', text:'Wave the phone in a figure-8 so the magnetometer settles. Then face a direction you know is north and tap Calibrate.', art:'eight' }
+];
+let obStep = 0;
+function drawOnboard(){
+  const step = ONBOARD[obStep];
+  document.getElementById('obTitle').textContent = step.title;
+  document.getElementById('obText').textContent = step.text;
+  document.getElementById('obArt').innerHTML = step.art==='eight'
+    ? '<svg viewBox="0 0 160 80" aria-hidden="true"><path d="M40 40 C40 18 70 18 80 40 C90 62 120 62 120 40 C120 18 90 18 80 40 C70 62 40 62 40 40"/></svg>'
+    : '';
+  const last = obStep===ONBOARD.length-1;
+  document.getElementById('obActions').innerHTML =
+    `${obStep? '<button type="button" id="obBack">Back</button>':''}`+
+    `<button type="button" id="obSkip">Skip</button>`+
+    `<button type="button" id="obNext">${last?'Start sky':'Next'}</button>`;
+  const back = document.getElementById('obBack');
+  if(back) back.onclick = ()=>{ obStep--; drawOnboard(); };
+  document.getElementById('obSkip').onclick = ()=>finishOnboard(false);
+  document.getElementById('obNext').onclick = ()=>{
+    if(!last){ obStep++; drawOnboard(); return; }
+    finishOnboard(true);
+  };
+}
+function finishOnboard(start){
+  try{ localStorage.setItem('skyar-onboarded','1'); }catch(e){}
+  document.getElementById('onboard').hidden = true;
+  if(start) btnStart.onclick();
+}
+function maybeShowOnboard(){
+  let seen = false;
+  try{ seen = localStorage.getItem('skyar-onboarded')==='1'; }catch(e){}
+  if(seen) return;
+  document.getElementById('onboard').hidden = false;
+  drawOnboard();
+}
+
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  cssW = window.innerWidth; cssH = window.innerHeight;
+  canvas.width = Math.round(cssW*dpr);
+  canvas.height = Math.round(cssH*dpr);
+  canvas.style.width = cssW+'px';
+  canvas.style.height = cssH+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
 window.addEventListener('resize', resize);
 resize();
 
@@ -325,96 +775,209 @@ function scheduleDraw(){
   framePending = true;
   requestAnimationFrame(draw);
 }
-
+function labelFits(box, placed){
+  return !placed.some(p => Math.abs(p.x-box.x) < (p.w+box.w)*0.5 && Math.abs(p.y-box.y) < 16);
+}
+function drawMoon(x, y, r, phase){
+  const c = pal();
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fillStyle = night?'#3a1210':'#1c2030'; ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.arc(x,y,r-0.5,0,Math.PI*2); ctx.clip();
+  ctx.fillStyle = c.moon;
+  for(let dy=-r; dy<=r; dy++){
+    const hw = Math.sqrt(Math.max(0, r*r-dy*dy));
+    const k = Math.cos(toRad(phase));
+    let x0, x1;
+    if(phase<=180){ x0 = k*hw; x1 = hw; }
+    else { x0 = -hw; x1 = -k*hw; }
+    if(x1-x0>0.4) ctx.fillRect(x+x0, y+dy, x1-x0, 1);
+  }
+  ctx.restore();
+}
+function drawGuide(m, w, h, now){
+  if(!guide) return;
+  let aa;
+  try{ aa = guide.altaz(now); }catch(e){ return; }
+  const p = projectSky(aa.alt, aa.az, m, w, h, true);
+  const col = pal();
+  ctx.fillStyle = col.guide;
+  ctx.strokeStyle = col.guide;
+  ctx.lineWidth = 1.5;
+  if(p.visible){
+    ctx.beginPath(); ctx.arc(p.x, p.y, 16, 0, Math.PI*2); ctx.stroke();
+    return;
+  }
+  const len = Math.hypot(p.dirx, p.diry)||1;
+  const R = Math.min(w,h)*0.2;
+  const ax = w/2 + p.dirx/len*R;
+  const ay = h/2 + p.diry/len*R;
+  ctx.save();
+  ctx.translate(ax, ay);
+  ctx.rotate(Math.atan2(p.diry, p.dirx));
+  ctx.beginPath();
+  ctx.moveTo(12,0); ctx.lineTo(-8,5.5); ctx.lineTo(-4,0); ctx.lineTo(-8,-5.5); ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  ctx.font = '12px system-ui';
+  ctx.fillText(guide.name, ax+14, ay-8);
+}
 function draw(){
   framePending = false;
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.clearRect(0,0,cssW,cssH);
   if(!ready){ scheduleDraw(); return; }
   const now = new Date();
-  const w=canvas.width, h=canvas.height;
-  const m = viewMatrix();
-  let best=null, bestDist=Infinity;
+  const w = cssW, h = cssH;
+  const m = frameMatrix();
+  const cam = cameraAltAz(m);
+  pitchNow = cam.alt;
+  updateCompass(cam.az);
+  hits = [];
+  const c = pal();
+  const placed = [];
+  const showNames = Number(densityEl.value);
+  let lock = null, lockD = 42;
 
-  // Stars
-  STARS.forEach(s=>{
-    const {alt,az} = raDecToAltAz(s[0],s[1],lat,lon,now);
-    const p = projectSky(alt,az,m,w,h);
+  function consider(p, name, r){
+    const d = Math.hypot(p.x-w/2, p.y-h/2);
+    if(d<lockD){ lockD=d; lock={name}; }
+  }
+  function addHit(p, r, item){
+    hits.push({ x:p.x, y:p.y, r:r+14, item });
+  }
+
+  SKY.consts.forEach(con=>{
+    con.lines.forEach(seg=>{
+      ctx.beginPath();
+      ctx.strokeStyle = c.line;
+      ctx.lineWidth = 1.25;
+      let started = false;
+      let drew = false;
+      let vis = null;
+      seg.forEach(pt=>{
+        const aa = raDecToAltAz(pt[0], pt[1], lat, lon, now);
+        const p = projectSky(aa.alt, aa.az, m, w, h);
+        if(p.visible){
+          if(!started){ ctx.moveTo(p.x,p.y); started=true; }
+          else ctx.lineTo(p.x,p.y);
+          drew = true;
+          vis = p;
+        }else started = false;
+      });
+      if(drew) ctx.stroke();
+      if(vis && showNames>45){
+        const box = { x:vis.x+8, y:vis.y-8, w:con.n.length*7 };
+        if(labelFits(box, placed)){
+          placed.push(box);
+          ctx.fillStyle = c.dim;
+          ctx.font = '12px system-ui';
+          ctx.fillText(con.n, vis.x+8, vis.y-6);
+        }
+      }
+    });
+  });
+
+  const stars = SKY.stars.slice().sort((a,b)=>a[2]-b[2]);
+  stars.forEach(s=>{
+    const aa = raDecToAltAz(s[0], s[1], lat, lon, now);
+    const p = projectSky(aa.alt, aa.az, m, w, h);
     if(!p.visible) return;
-    const r = Math.max(1.5, 5 - s[2]);
-    ctx.fillStyle='#fff';
+    const r = Math.max(1.15, 4.4 - s[2]);
+    ctx.fillStyle = c.star;
     ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2); ctx.fill();
-    if(s[3]){
-      ctx.fillStyle='#ccc'; ctx.font='11px system-ui';
-      ctx.fillText(s[3], p.x+6, p.y-4);
+    const item = starItem(s);
+    addHit(p, r, item);
+    consider(p, item.name, r);
+    if(s[3] && s[2] <= labelMag){
+      const box = { x:p.x+8, y:p.y-4, w:s[3].length*6.4 };
+      if(labelFits(box, placed)){
+        placed.push(box);
+        ctx.fillStyle = c.label;
+        ctx.font = '11px system-ui';
+        ctx.fillText(s[3], p.x+6, p.y-4);
+      }
     }
   });
 
-  // Constellations
-  CONSTELLATIONS.forEach(con=>{
-    const pts=[];
-    con.stars.forEach(st=>{
-      const {alt,az}=raDecToAltAz(st[0],st[1],lat,lon,now);
-      pts.push(projectSky(alt,az,m,w,h));
-    });
-    ctx.strokeStyle='rgba(120,180,255,0.7)';
-    ctx.lineWidth=1.5;
-    ctx.beginPath();
-    let started=false;
-    pts.forEach(p=>{
-      if(p.visible){ if(!started){ctx.moveTo(p.x,p.y);started=true;} else ctx.lineTo(p.x,p.y); }
-      else started=false;
-    });
-    ctx.stroke();
-    const first=pts.find(p=>p.visible);
-    if(first){ ctx.fillStyle='#7cf'; ctx.font='13px system-ui'; ctx.fillText(con.name, first.x+8, first.y-6); }
-  });
-
-  // Planets
   if(window.Astronomy){
-    const observer = new Astronomy.Observer(lat, lon, 0);
+    let moonPhase = 0;
+    try{ moonPhase = Astronomy.MoonPhase(now); }catch(e){}
     PLANETS.forEach(body=>{
       try{
-        const equ = Astronomy.Equator(body, now, observer, true, true);
-        const hor = Astronomy.Horizon(now, observer, equ.ra, equ.dec, 'normal');
-        const p = projectSky(hor.altitude, hor.azimuth, m, w, h);
+        const item = planetItem(body);
+        const aa = item.altaz(now);
+        const p = projectSky(aa.alt, aa.az, m, w, h);
         if(!p.visible) return;
-        ctx.fillStyle = body==='Sun' ? '#ff0' : body==='Moon' ? '#eee' : '#f90';
-        ctx.beginPath(); ctx.arc(p.x,p.y, body==='Sun'||body==='Moon'?8:5, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle='#fff'; ctx.font='12px system-ui';
-        ctx.fillText(body, p.x+10, p.y+4);
-        const d = Math.hypot(p.x-w/2, p.y-h/2);
-        if(d<bestDist){ bestDist=d; best=body; }
+        const rad = body==='Sun'||body==='Moon' ? 11 : 5;
+        if(body==='Moon') drawMoon(p.x, p.y, rad, moonPhase);
+        else if(body==='Sun'){
+          ctx.beginPath(); ctx.arc(p.x,p.y,16,0,Math.PI*2); ctx.fillStyle = night?'rgba(255,120,60,.25)':'rgba(255,210,80,.28)'; ctx.fill();
+          ctx.beginPath(); ctx.arc(p.x,p.y,rad,0,Math.PI*2); ctx.fillStyle = c.sun; ctx.fill();
+        }else{
+          ctx.fillStyle = c.planet;
+          ctx.beginPath(); ctx.arc(p.x,p.y,rad,0,Math.PI*2); ctx.fill();
+        }
+        addHit(p, rad, item);
+        consider(p, body, rad);
+        const box = { x:p.x+12, y:p.y+4, w:body.length*7 };
+        if(labelFits(box, placed)){
+          placed.push(box);
+          ctx.fillStyle = c.label;
+          ctx.font = '12px system-ui';
+          ctx.fillText(body, p.x+12, p.y+4);
+        }
       }catch(e){}
     });
   }
 
-  // Satellites / debris
-  if(sats.length && window.satellite){
-    const observerGd = {longitude:toRad(lon), latitude:toRad(lat), height:0.1};
-    sats.forEach(s=>{
-      try{
-        const pv = satellite.propagate(s.satrec, now);
-        if(!pv.position) return;
-        const gmst = satellite.gstime(now);
-        const posEcf = satellite.eciToEcf(pv.position, gmst);
-        const look = satellite.ecfToLookAngles(observerGd, posEcf);
-        const el = toDeg(look.elevation);
-        const az = toDeg(look.azimuth);
-        const p = projectSky(el, az, m, w, h);
-        if(!p.visible) return;
-        ctx.fillStyle = s.type==='stations' ? '#0f0' : '#f55';
-        ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle='#fff'; ctx.font='10px system-ui';
-        ctx.fillText(s.name.slice(0,16), p.x+6, p.y-2);
-        const d = Math.hypot(p.x-w/2, p.y-h/2);
-        if(d<bestDist){ bestDist=d; best=s.name; }
-      }catch(e){}
+  if(window.satellite){
+    visibleSats().forEach(sat=>{
+      const look = satLook(sat, now);
+      if(!look) return;
+      const p = projectSky(look.alt, look.az, m, w, h);
+      if(!p.visible) return;
+      ctx.fillStyle = c[sat.group] || c.visual;
+      ctx.fillRect(p.x-2.5, p.y-2.5, 5, 5);
+      const item = satItem(sat);
+      addHit(p, 5, item);
+      consider(p, sat.name, 5);
+      const important = /ISS/i.test(sat.name) || showNames>75 || (guide && guide.sat===sat);
+      if(important){
+        const label = sat.name.slice(0,18);
+        const box = { x:p.x+6, y:p.y-2, w:label.length*5.6 };
+        if(labelFits(box, placed)){
+          placed.push(box);
+          ctx.fillStyle = c.label;
+          ctx.font = '10px system-ui';
+          ctx.fillText(label, p.x+6, p.y-2);
+        }
+      }
     });
   }
 
-  targetEl.textContent = best && bestDist < Math.min(w,h)*0.3 ? `Near: ${best}` : 'Sweep the sky';
+  drawGuide(m, w, h, now);
+  lockEl.textContent = lock && lockD<42 ? lock.name : '';
   scheduleDraw();
 }
+
+canvas.addEventListener('pointerup', (ev)=>{
+  const rect = canvas.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const y = ev.clientY - rect.top;
+  let best = null, bestD = Infinity;
+  hits.forEach(h=>{
+    const d = Math.hypot(h.x-x, h.y-y);
+    if(d<=h.r && d<bestD){ bestD=d; best=h; }
+  });
+  if(best) openCard(best.item);
+  else { cardEl.hidden = true; cardItem = null; }
+});
+
+restoreSettings();
+buildCompass();
+buildToggles();
+reportLibraries();
+loadCachedTles();
+maybeShowOnboard();
+refreshTles(true);
 scheduleDraw();
 </script>
 </body>
