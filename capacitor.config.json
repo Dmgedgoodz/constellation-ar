@@ -1,1 +1,9 @@
-PLACEHOLDER
+{
+  "appId": "com.orbitalreclaim.skyar",
+  "appName": "Sky AR",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": true
+  }
+}
