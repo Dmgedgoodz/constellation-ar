@@ -1,1 +1,271 @@
-PLACEHOLDER
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Constellation AR</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; background:#000; color:#fff; font-family:system-ui,sans-serif; }
+#video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); }
+#canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+#hud { position:absolute; top:12px; left:12px; right:12px; z-index:10; font-size:14px; text-shadow:0 1px 2px #000; }
+#status { background:rgba(0,0,0,.55); padding:8px 12px; border-radius:8px; }
+#target { margin-top:6px; font-size:18px; font-weight:600; color:#7cf; }
+#controls { position:absolute; bottom:20px; left:0; right:0; text-align:center; z-index:10; }
+button { background:#1a3a5c; color:#fff; border:1px solid #4af; padding:10px 18px; border-radius:8px; font-size:15px; margin:0 6px; }
+button:active { background:#2a5a8c; }
+#cross { position:absolute; left:50%; top:50%; width:24px; height:24px; margin:-12px 0 0 -12px; border:2px solid rgba(255,255,255,.7); border-radius:50%; pointer-events:none; z-index:5; }
+#cross:before, #cross:after { content:""; position:absolute; background:rgba(255,255,255,.7); }
+#cross:before { left:50%; top:0; width:1px; height:100%; margin-left:-0.5px; }
+#cross:after { top:50%; left:0; height:1px; width:100%; margin-top:-0.5px; }
+</style>
+</head>
+<body>
+<video id="video" autoplay playsinline muted></video>
+<canvas id="canvas"></canvas>
+<div id="cross"></div>
+<div id="hud">
+  <div id="status">Initializing…</div>
+  <div id="target"></div>
+</div>
+<div id="controls">
+  <button id="btnStart">Start Sensors</button>
+  <button id="btnCal">Calibrate North</button>
+</div>
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const targetEl = document.getElementById('target');
+const btnStart = document.getElementById('btnStart');
+const btnCal = document.getElementById('btnCal');
+
+let lat = 38.58, lon = -121.49; // Sacramento default
+let heading = 0, pitch = 0;
+let headingOffset = 0;
+let ready = false;
+let camStream = null;
+
+// Compact constellation stick figures: name, [ [ra_h, dec_deg, mag], ... ]
+const CONSTELLATIONS = [
+  { name: "Orion", stars: [
+    [5.242, -8.20, 0.5], [5.919, 7.41, 0.4], [5.418, -1.20, 1.7],
+    [5.795, -9.67, 2.1], [5.604, -9.67, 2.2], [5.919, 7.41, 0.4],
+    [5.795, -9.67, 2.1], [5.418, -1.20, 1.7]
+  ]},
+  { name: "Ursa Major", stars: [
+    [11.062, 61.75, 1.8], [11.897, 53.69, 2.4], [12.257, 57.03, 2.3],
+    [12.900, 55.96, 1.8], [13.398, 54.93, 2.2], [13.792, 49.31, 1.9],
+    [13.398, 54.93, 2.2], [12.900, 55.96, 1.8]
+  ]},
+  { name: "Cassiopeia", stars: [
+    [0.153, 59.15, 2.5], [0.945, 60.72, 2.2], [1.430, 63.67, 2.5],
+    [1.906, 63.67, 2.7], [2.294, 67.14, 2.2]
+  ]},
+  { name: "Cygnus", stars: [
+    [19.846, 45.28, 1.3], [20.690, 45.28, 2.5], [20.220, 40.26, 2.2],
+    [19.512, 27.96, 3.0], [20.220, 40.26, 2.2], [21.211, 30.23, 2.9]
+  ]},
+  { name: "Scorpius", stars: [
+    [16.490, -26.43, 1.1], [16.836, -34.29, 2.3], [17.202, -37.10, 2.6],
+    [17.560, -37.10, 2.8], [17.622, -42.99, 2.4], [16.836, -34.29, 2.3]
+  ]},
+  { name: "Leo", stars: [
+    [10.140, 11.97, 1.4], [11.235, 20.52, 2.1], [11.818, 14.57, 2.6],
+    [11.235, 20.52, 2.1], [10.140, 11.97, 1.4]
+  ]},
+  { name: "Taurus", stars: [
+    [4.598, 16.51, 0.9], [5.438, 28.61, 1.7], [4.598, 16.51, 0.9]
+  ]},
+  { name: "Gemini", stars: [
+    [7.576, 31.89, 1.2], [7.755, 28.03, 1.6], [6.629, 16.40, 1.9],
+    [7.576, 31.89, 1.2]
+  ]},
+  { name: "Andromeda", stars: [
+    [0.140, 29.09, 2.1], [1.163, 35.62, 2.1], [2.065, 42.33, 2.1]
+  ]},
+  { name: "Lyra", stars: [
+    [18.615, 38.78, 0.0], [18.984, 32.69, 3.3], [19.159, 33.36, 3.5]
+  ]},
+  { name: "Aquila", stars: [
+    [19.846, 8.87, 0.8], [19.770, 6.41, 2.7], [20.112, 1.01, 2.7]
+  ]},
+  { name: "Canis Major", stars: [
+    [6.752, -16.72, -1.5], [7.140, -26.39, 1.5], [6.378, -17.96, 1.8]
+  ]}
+];
+
+function toRad(d) { return d * Math.PI / 180; }
+function toDeg(r) { return r * 180 / Math.PI; }
+function norm(a) { a = a % 360; return a < 0 ? a + 360 : a; }
+
+function julianDate(date) {
+  return date.getTime() / 86400000 + 2440587.5;
+}
+
+function gmstHours(date) {
+  const jd = julianDate(date);
+  const d = jd - 2451545.0;
+  let gmst = 18.697374558 + 24.06570982441908 * d;
+  gmst = ((gmst % 24) + 24) % 24;
+  return gmst;
+}
+
+function localSiderealHours(date, lonDeg) {
+  return ((gmstHours(date) + lonDeg / 15) % 24 + 24) % 24;
+}
+
+function raDecToAltAz(raH, decDeg, latDeg, lonDeg, date) {
+  const lst = localSiderealHours(date, lonDeg);
+  let ha = (lst - raH) * 15;
+  ha = ((ha % 360) + 360) % 360;
+  if (ha > 180) ha -= 360;
+  const haR = toRad(ha);
+  const decR = toRad(decDeg);
+  const latR = toRad(latDeg);
+  const sinAlt = Math.sin(latR)*Math.sin(decR) + Math.cos(latR)*Math.cos(decR)*Math.cos(haR);
+  const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
+  const cosAz = (Math.sin(decR) - Math.sin(latR)*sinAlt) / (Math.cos(latR)*Math.cos(alt));
+  let az = Math.acos(Math.max(-1, Math.min(1, cosAz)));
+  if (Math.sin(haR) > 0) az = 2*Math.PI - az;
+  return { alt: toDeg(alt), az: toDeg(az) };
+}
+
+function project(alt, az, headingDeg, pitchDeg, w, h) {
+  const fovH = 60;
+  const fovV = fovH * (h / w);
+  let dAz = norm(az - headingDeg);
+  if (dAz > 180) dAz -= 360;
+  const dAlt = alt - pitchDeg;
+  const x = w/2 + (dAz / (fovH/2)) * (w/2);
+  const y = h/2 - (dAlt / (fovV/2)) * (h/2);
+  return { x, y, visible: Math.abs(dAz) < fovH*0.7 && Math.abs(dAlt) < fovV*0.7 };
+}
+
+async function startCamera() {
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video.srcObject = camStream;
+    statusEl.textContent = 'Camera ready. Grant orientation + location.';
+  } catch (e) {
+    statusEl.textContent = 'Camera denied or unavailable. Overlay only.';
+  }
+}
+
+async function startSensors() {
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm !== 'granted') {
+        statusEl.textContent = 'Orientation permission denied.';
+        return;
+      }
+    } catch (e) {
+      statusEl.textContent = 'Orientation permission error.';
+      return;
+    }
+  }
+  window.addEventListener('deviceorientationabsolute', onOrient, true);
+  window.addEventListener('deviceorientation', onOrient, true);
+  navigator.geolocation.getCurrentPosition(pos => {
+    lat = pos.coords.latitude;
+    lon = pos.coords.longitude;
+    statusEl.textContent = `Loc: ${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+    ready = true;
+  }, () => {
+    statusEl.textContent = 'Location denied. Using Sacramento default.';
+    ready = true;
+  }, { enableHighAccuracy: true, timeout: 8000 });
+  btnStart.disabled = true;
+}
+
+function onOrient(e) {
+  let h = e.webkitCompassHeading;
+  if (h == null || isNaN(h)) {
+    h = e.alpha != null ? (360 - e.alpha) : heading;
+  }
+  heading = norm(h + headingOffset);
+  let b = e.beta || 0;
+  pitch = Math.max(-90, Math.min(90, 90 - Math.abs(b)));
+  if (b < 0) pitch = -pitch;
+}
+
+btnStart.addEventListener('click', async () => {
+  await startCamera();
+  await startSensors();
+});
+
+btnCal.addEventListener('click', () => {
+  headingOffset = -heading;
+  statusEl.textContent = 'North calibrated (current direction = 0°).';
+});
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!ready) { requestAnimationFrame(draw); return; }
+  const now = new Date();
+  const w = canvas.width, h = canvas.height;
+  let best = null, bestDist = Infinity;
+
+  CONSTELLATIONS.forEach(con => {
+    const pts = [];
+    con.stars.forEach(s => {
+      const { alt, az } = raDecToAltAz(s[0], s[1], lat, lon, now);
+      const p = project(alt, az, heading, pitch, w, h);
+      pts.push({ ...p, mag: s[2] });
+    });
+    let cx = 0, cy = 0, n = 0;
+    pts.forEach(p => { if (p.visible) { cx += p.x; cy += p.y; n++; } });
+    if (n) {
+      cx /= n; cy /= n;
+      const d = Math.hypot(cx - w/2, cy - h/2);
+      if (d < bestDist) { bestDist = d; best = con.name; }
+    }
+    ctx.strokeStyle = 'rgba(120,200,255,0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let started = false;
+    pts.forEach((p) => {
+      if (p.visible) {
+        if (!started) { ctx.moveTo(p.x, p.y); started = true; }
+        else ctx.lineTo(p.x, p.y);
+      } else started = false;
+    });
+    ctx.stroke();
+    pts.forEach(p => {
+      if (!p.visible) return;
+      const r = Math.max(2, 6 - p.mag);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+      ctx.fill();
+    });
+    const first = pts.find(p => p.visible);
+    if (first) {
+      ctx.fillStyle = '#7cf';
+      ctx.font = '14px system-ui';
+      ctx.fillText(con.name, first.x + 8, first.y - 8);
+    }
+  });
+
+  targetEl.textContent = best && bestDist < Math.min(w,h)*0.35
+    ? `Pointing at: ${best}`
+    : 'Sweep the sky…';
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
