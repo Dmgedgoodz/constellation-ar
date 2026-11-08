@@ -13,7 +13,11 @@
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body { width:100%; height:100%; overflow:hidden; background:#000; color:var(--fg); font-family:system-ui,sans-serif; user-select:none; }
-#video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+#video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000; opacity:0; }
+#video.live { opacity:1; }
+#video::-webkit-media-controls { display:none !important; }
+#video::-webkit-media-controls-start-playback-button,
+#video::-webkit-media-controls-overlay-play-button { display:none !important; -webkit-appearance:none; }
 #canvas { position:absolute; inset:0; width:100%; height:100%; touch-action:none; }
 #wash { position:absolute; inset:0; pointer-events:none; z-index:3; }
 #reticle { position:absolute; left:50%; top:46%; width:46px; height:46px; transform:translate(-50%,-50%); pointer-events:none; z-index:5; }
@@ -31,8 +35,8 @@ html, body { width:100%; height:100%; overflow:hidden; background:#000; color:va
 .tick.major i { height:12px; background:var(--fg); }
 .tick b { position:absolute; top:22px; left:0; transform:translateX(-50%); font-size:10px; letter-spacing:.08em; color:var(--fg); font-weight:650; }
 #caret { position:absolute; left:50%; top:0; width:2px; height:16px; margin-left:-1px; background:var(--accent); border-radius:1px; }
-#readout { position:absolute; right:8px; top:6px; font-variant-numeric:tabular-nums; font-size:12px; line-height:1.25; text-align:right; color:var(--fg); text-shadow:0 1px 2px #000; }
-#readout span { display:block; color:var(--muted); }
+#readout { display:flex; gap:16px; align-items:baseline; padding:0 2px; font-variant-numeric:tabular-nums; font-size:13px; text-shadow:0 1px 2px #000; }
+#readout span { color:var(--muted); }
 #readout strong { color:var(--fg); font-weight:650; }
 #searchWrap { position:relative; }
 #search { width:100%; pointer-events:auto; user-select:text; background:var(--glass); color:var(--fg); border:1px solid var(--line); border-radius:12px; padding:10px 12px; font-size:15px; outline:none; }
@@ -79,12 +83,13 @@ body.night #obNext { background:#6a2018; border-color:#ff5c4d; }
 <script src="descriptions.js" onerror="(window.__skyLibError=window.__skyLibError||[]).push('descriptions')"></script>
 </head>
 <body>
-<video id="video" autoplay playsinline muted></video>
+<video id="video" autoplay playsinline muted webkit-playsinline poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video>
 <canvas id="canvas"></canvas>
 <div id="wash"></div>
 <div id="reticle" aria-hidden="true"><div class="ring"></div><div class="dot"></div><div id="lock"></div></div>
 <div id="hud">
-  <div id="compass"><div id="compassRot"></div><div id="caret"></div><div id="readout"><strong id="azRead">—</strong><span id="altRead">Alt —</span></div></div>
+  <div id="compass"><div id="compassRot"></div><div id="caret"></div></div>
+  <div id="readout"><strong id="azRead">—</strong><span id="altRead">Alt —</span></div>
   <div id="searchWrap">
     <input id="search" type="search" placeholder="Search star, planet, or satellite" autocomplete="off" enterkeyhint="search">
     <div id="results" hidden></div>
@@ -139,19 +144,26 @@ const compass = document.getElementById('compass');
 const SKY = window.SKY || { stars: [], consts: [] };
 const CON_NAME = Object.fromEntries((SKY.consts||[]).map(c => [c.id, c.n]));
 const PLANETS = ['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Uranus','Neptune'];
+const TLE_BASE = 'https://celestrak.org/NORAD/elements/gp.php';
 const GROUPS = [
   { id:'stations', label:'ISS/Stations', cap:70 },
   { id:'visual', label:'Visual', cap:80 },
   { id:'starlink', label:'Starlink', cap:50 },
-  { id:'debris', label:'Debris', cap:40 }
+  { id:'debris', label:'Debris', cap:50 }
+];
+const DEBRIS_SOURCES = [
+  { query:'GROUP=cosmos-2251-debris', cap:18 },
+  { query:'GROUP=iridium-33-debris', cap:12 },
+  { query:'GROUP=fengyun-1c-debris', cap:12, fallback:'INTDES=1999-025' }
 ];
 const ALIAS = { schedar:'shedar', schedir:'shedar' };
 const FOV_H = 55;
-const CACHE_KEY = 'skyar-tle-v1';
+const CACHE_KEY = 'skyar-tle-v2';
+const CACHE_MS = 2 * 60 * 60 * 1000;
 
 let lat = 38.58, lon = -121.49;
 let headingOffset = 0;
-let ready = false;
+let ready = true;
 let camStream = null;
 let wakeLock = null;
 let rawAz = 0;
@@ -165,6 +177,8 @@ let labelMag = 2.2;
 let night = false;
 let enabled = { stations:true, visual:true, starlink:false, debris:false };
 let groups = {};
+let groupTimes = {};
+let blockedUntil = {};
 let satsLoading = false;
 let guide = null;
 let cardItem = null;
@@ -363,14 +377,39 @@ async function requestWakeLock(){
     setNotice('wake', `Wake Lock failed: ${e && (e.message || e.name) || 'unavailable'}`);
   }
 }
+const CLEAR_POSTER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+function prepareVideo(){
+  video.poster = CLEAR_POSTER;
+  video.muted = true;
+  video.defaultMuted = true;
+  video.autoplay = true;
+  video.playsInline = true;
+  video.controls = false;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
+  video.setAttribute('muted', '');
+}
 async function startCamera(){
+  prepareVideo();
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    video.classList.remove('live');
+    setNotice('camera', 'Camera failed: getUserMedia is not supported in this WebView.');
+    setStatus('Camera unavailable. Overlay only.');
+    return;
+  }
   try{
     camStream = await navigator.mediaDevices.getUserMedia({
       video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } },
       audio:false
     });
     video.srcObject = camStream;
+    await video.play();
+    video.classList.add('live');
+    setNotice('camera', '');
   }catch(e){
+    video.classList.remove('live');
+    const why = (e && (e.message || e.name)) || 'permission denied';
+    setNotice('camera', `Camera failed: ${why}`);
     setStatus('Camera unavailable. Overlay only.');
   }
 }
@@ -386,11 +425,18 @@ async function startSensors(){
     if(perm!=='granted'){ setStatus('Orientation denied'); btnStart.disabled=false; return; }
   }
   bindOrientation();
+  requestLocation();
+}
+function requestLocation(){
+  if(!navigator.geolocation){
+    setStatus('Using default location');
+    return;
+  }
   navigator.geolocation.getCurrentPosition(pos=>{
-    lat=pos.coords.latitude; lon=pos.coords.longitude;
+    lat = pos.coords.latitude;
+    lon = pos.coords.longitude;
     setStatus(`Loc ${lat.toFixed(2)}, ${lon.toFixed(2)}`);
-    ready=true;
-  }, ()=>{ setStatus('Using default location'); ready=true; }, { enableHighAccuracy:true, timeout:8000 });
+  }, ()=>{ setStatus('Using default location'); }, { enableHighAccuracy:true, timeout:8000 });
 }
 function onOrient(e){
   let alpha = e.alpha;
@@ -437,27 +483,86 @@ function parseTleText(text, group, cap){
   }
   return out;
 }
+function rowsOf(list){
+  return (list||[]).map(s=>({ name:s.raw||s.name, l1:s.l1, l2:s.l2 }));
+}
 function cacheAll(){
-  const blob = {};
+  const blob = { _blocked: blockedUntil };
   GROUPS.forEach(g=>{
     const list = groups[g.id]||[];
-    if(list.length) blob[g.id] = list.map(s=>({ name:s.raw||s.name, l1:s.l1, l2:s.l2 }));
+    if(list.length) blob[g.id] = { t: groupTimes[g.id] || Date.now(), rows: rowsOf(list) };
   });
   try{ localStorage.setItem(CACHE_KEY, JSON.stringify(blob)); }
   catch(e){ setNotice('cache', 'TLE cache is full'); }
 }
+function applyCachedRows(id, rows, cap){
+  if(!rows || !rows.length || !window.satellite) return 0;
+  const text = rows.map(r=>`${r.name}\n${r.l1}\n${r.l2}`).join('\n');
+  groups[id] = parseTleText(text, id, cap);
+  return groups[id].length;
+}
 function loadCachedTles(){
   let blob = {};
-  try{ blob = JSON.parse(localStorage.getItem(CACHE_KEY)||'{}'); }catch(e){ blob = {}; }
+  try{ blob = JSON.parse(localStorage.getItem(CACHE_KEY) || localStorage.getItem('skyar-tle-v1') || '{}'); }catch(e){ blob = {}; }
+  if(blob._blocked) blockedUntil = blob._blocked;
   let n = 0;
   GROUPS.forEach(g=>{
-    const rows = blob[g.id];
-    if(!rows || !rows.length || !window.satellite) return;
-    const text = rows.map(r=>`${r.name}\n${r.l1}\n${r.l2}`).join('\n');
-    groups[g.id] = parseTleText(text, g.id, g.cap);
-    n += groups[g.id].length;
+    const entry = blob[g.id];
+    const rows = entry && entry.rows ? entry.rows : entry;
+    if(entry && entry.t) groupTimes[g.id] = entry.t;
+    n += applyCachedRows(g.id, rows, g.cap);
   });
   if(n) setStatus(`Cached ${n} objects`);
+}
+function cacheFresh(id){
+  const t = groupTimes[id];
+  return !!(t && Date.now() - t < CACHE_MS && groups[id] && groups[id].length);
+}
+async function fetchTleQuery(query){
+  const ctrl = typeof AbortSignal!=='undefined' && AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined;
+  const res = await fetch(`${TLE_BASE}?${query}&FORMAT=tle`, ctrl ? { signal: ctrl } : undefined);
+  const text = await res.text();
+  const parsedOk = res.ok && /(?:^|\n)1 \d/.test(text);
+  return { ok: parsedOk, status: res.status, text };
+}
+function rememberBlock(key){
+  blockedUntil[key] = Date.now() + CACHE_MS;
+}
+async function fetchSource(query){
+  if(blockedUntil[query] && Date.now() < blockedUntil[query]){
+    return { ok:false, status:403, blocked:true, text:'' };
+  }
+  try{
+    const result = await fetchTleQuery(query);
+    if(result.status === 403) rememberBlock(query);
+    return result;
+  }catch(e){
+    return { ok:false, status:0, text:'' };
+  }
+}
+async function loadDebris(cap){
+  const found = [];
+  const problems = [];
+  for(const src of DEBRIS_SOURCES){
+    if(found.length >= cap) break;
+    let result = await fetchSource(src.query);
+    if(!result.ok && src.fallback){
+      const alt = await fetchSource(src.fallback);
+      if(alt.ok) result = alt;
+    }
+    if(result.status === 403){
+      problems.push(`${src.query} HTTP 403`);
+      continue;
+    }
+    if(!result.ok){
+      problems.push(result.status ? `${src.query} HTTP ${result.status}` : `${src.query} offline`);
+      continue;
+    }
+    const parsed = parseTleText(result.text, 'debris', Math.min(src.cap, cap - found.length));
+    if(!parsed.length){ problems.push(`${src.query} empty`); continue; }
+    found.push(...parsed);
+  }
+  return { sats: found.slice(0, cap), problems };
 }
 async function refreshTles(quiet){
   if(satsLoading) return;
@@ -469,23 +574,46 @@ async function refreshTles(quiet){
   let fresh = 0;
   try{
     for(const g of GROUPS){
+      if(cacheFresh(g.id)){ fresh += groups[g.id].length; continue; }
       try{
-        const ctrl = typeof AbortSignal!=='undefined' && AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined;
-        const res = await fetch(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${g.id}&FORMAT=tle`, ctrl?{signal:ctrl}:undefined);
-        if(!res.ok){ problems.push(`${g.label} HTTP ${res.status}`); continue; }
-        const text = await res.text();
-        const parsed = parseTleText(text, g.id, g.cap);
-        if(parsed.length){ groups[g.id] = parsed; fresh += parsed.length; }
-        else problems.push(`${g.label} empty`);
+        if(g.id === 'debris'){
+          const loaded = await loadDebris(g.cap);
+          problems.push(...loaded.problems);
+          if(loaded.sats.length){
+            groups.debris = loaded.sats;
+            groupTimes.debris = Date.now();
+            fresh += loaded.sats.length;
+          }else if(!(groups.debris && groups.debris.length)){
+            problems.push('Debris unavailable');
+          }
+          continue;
+        }
+        const query = `GROUP=${g.id}`;
+        const result = await fetchSource(query);
+        if(result.status === 403){
+          problems.push(groups[g.id] && groups[g.id].length
+            ? `${g.label} HTTP 403, using saved TLEs`
+            : `${g.label} HTTP 403 (CelesTrak allows one download per update)`);
+          continue;
+        }
+        if(!result.ok){
+          problems.push(result.status ? `${g.label} HTTP ${result.status}` : `${g.label} offline`);
+          continue;
+        }
+        const parsed = parseTleText(result.text, g.id, g.cap);
+        if(!parsed.length){ problems.push(`${g.label} empty`); continue; }
+        groups[g.id] = parsed;
+        groupTimes[g.id] = Date.now();
+        fresh += parsed.length;
       }catch(e){
         problems.push(`${g.label} offline`);
       }
     }
-    if(fresh) cacheAll();
-    const cached = GROUPS.reduce((n,g)=>n+(groups[g.id]?groups[g.id].length:0),0);
-    if(fresh) setStatus(problems.length ? `Updated ${fresh} (${problems.join(', ')})` : `Updated ${fresh} objects`);
-    else if(cached) setStatus(problems.length ? `Using cached TLEs (${problems.join(', ')})` : `Cached ${cached} objects`);
-    else setStatus(problems.length ? `TLE update failed (${problems.join(', ')})` : 'No satellites');
+    if(GROUPS.some(g => groupTimes[g.id])) cacheAll();
+    const have = GROUPS.reduce((n,g)=>n+(groups[g.id]?groups[g.id].length:0),0);
+    if(have && !problems.length) setStatus(`Updated ${have} objects`);
+    else if(have) setStatus(`Satellites ${have} (${problems.join('; ')})`);
+    else setStatus(problems.length ? problems.join('; ') : 'No satellites');
   }finally{
     satsLoading = false;
     btnUpdate.disabled = false;
@@ -916,7 +1044,6 @@ function drawGuide(m, w, h, now){
 function draw(){
   framePending = false;
   ctx.clearRect(0,0,cssW,cssH);
-  if(!ready){ scheduleDraw(); return; }
   const now = new Date();
   const w = cssW, h = cssH;
   const m = frameMatrix();
@@ -1068,8 +1195,10 @@ canvas.addEventListener('pointerup', (ev)=>{
 restoreSettings();
 buildCompass();
 buildToggles();
+prepareVideo();
 reportLibraries();
 loadCachedTles();
+requestLocation();
 maybeShowOnboard();
 refreshTles(true);
 scheduleDraw();
