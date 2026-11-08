@@ -54,6 +54,7 @@ let camStream = null;
 let wakeLock = null;
 let sats = [];
 
+// Expanded bright stars [ra_h, dec_deg, mag, name]
 const STARS = [
   [6.752, -16.72, -1.46, "Sirius"], [0.139, 29.09, 2.06, "Alpheratz"],
   [5.242, -8.20, 0.50, "Rigel"], [5.919, 7.41, 0.42, "Betelgeuse"],
@@ -63,7 +64,8 @@ const STARS = [
   [20.690, 45.28, 1.25, "Deneb"], [14.261, 19.18, 2.14, "Arcturus"],
   [16.490, -26.43, 1.06, "Antares"], [22.096, -47.29, 0.01, "Achernar"],
   [6.399, -52.70, -0.74, "Canopus"], [4.598, 16.51, 0.85, "Aldebaran"],
-  [7.576, 31.89, 1.16, "Pollux"], [10.140, 11.97, 1.35, "Regulus"]
+  [7.576, 31.89, 1.16, "Pollux"], [10.140, 11.97, 1.35, "Regulus"],
+  [13.398, 54.93, 2.37, "Alioth"], [0.945, 60.72, 2.23, "Schedar"]
 ];
 
 const CONSTELLATIONS = [
@@ -200,6 +202,7 @@ function draw(){
   const w=canvas.width, h=canvas.height;
   let best=null, bestDist=Infinity;
 
+  // Stars
   STARS.forEach(s=>{
     const {alt,az} = raDecToAltAz(s[0],s[1],lat,lon,now);
     const p = project(alt,az,heading,pitch,w,h);
@@ -213,6 +216,7 @@ function draw(){
     }
   });
 
+  // Constellations
   CONSTELLATIONS.forEach(con=>{
     const pts=[];
     con.stars.forEach(st=>{
@@ -232,6 +236,7 @@ function draw(){
     if(first){ ctx.fillStyle='#7cf'; ctx.font='13px system-ui'; ctx.fillText(con.name, first.x+8, first.y-6); }
   });
 
+  // Planets
   if(window.Astronomy){
     const observer = new Astronomy.Observer(lat, lon, 0);
     PLANETS.forEach(body=>{
@@ -250,6 +255,7 @@ function draw(){
     });
   }
 
+  // Satellites / debris
   if(sats.length && window.satellite){
     const observerGd = {longitude:toRad(lon), latitude:toRad(lat), height:0.1};
     sats.forEach(s=>{

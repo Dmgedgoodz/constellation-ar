@@ -4,6 +4,12 @@
   "webDir": "www",
   "bundledWebRuntime": false,
   "android": {
-    "allowMixedContent": true
+    "allowMixedContent": true,
+    "captureInput": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0
+    }
   }
 }

@@ -34,20 +34,44 @@ Inside `<application>` add:
 android:usesCleartextTraffic="true"
 ```
 
-### 3. Build debug APK
+### 3. Runtime permissions (optional but recommended)
+Create a small Capacitor plugin or use `@capacitor/geolocation` + camera plugin, or rely on WebView permission prompts. Current web code already requests camera, geolocation, and DeviceOrientation.
+
+### 4. Build debug APK
 ```bash
 cd android
 ./gradlew assembleDebug
 ```
 Output: `android/app/build/outputs/apk/debug/app-debug.apk`
 
-### 4. Install via ADB
+### 5. Install via ADB
 ```bash
 adb install -r app-debug.apk
 ```
 
-## Live browser test
-Open `www/index.html` or the hosted preview.
+### 6. Release build (for selling)
+```bash
+# Create keystore once
+keytool -genkey -v -keystore sky-ar.keystore -alias skyar -keyalg RSA -keysize 2048 -validity 10000
+
+# Add signing config to android/app/build.gradle then:
+./gradlew assembleRelease
+```
+
+## Live browser test (before APK)
+Open `www/index.html` in Chrome on the phone, or host it.
 Tap **Start Sensors** then **Load Sats**.
 
-Repo: https://github.com/Dmgedgoodz/constellation-ar
+## Known limits
+- CelesTrak TLE fetch requires network.
+- DeviceOrientation absolute heading works best on Android Chrome; iOS needs permission.
+- Star catalog is compact (bright stars only). Expand `STARS` array for more.
+- Debris groups can be added by extending the `groups` array in `loadSats()`.
+
+## Monetization path
+1. Debug APK → sideload / direct sale (Gumroad, etc.)
+2. Signed release APK → Google Play ($25 developer account)
+3. Privacy policy required (camera + location)
+
+Repo mirror: https://github.com/Dmgedgoodz/constellation-ar
+Local handoff: this folder.
