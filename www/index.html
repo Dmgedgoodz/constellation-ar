@@ -1,1 +1,283 @@
-PLACEHOLDER_FULL
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Sky AR</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; background:#000; color:#fff; font-family:system-ui,sans-serif; }
+#video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); }
+#canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+#hud { position:absolute; top:12px; left:12px; right:12px; z-index:10; font-size:13px; text-shadow:0 1px 2px #000; }
+#status { background:rgba(0,0,0,.6); padding:8px 12px; border-radius:8px; }
+#target { margin-top:4px; font-size:16px; font-weight:600; color:#7cf; }
+#controls { position:absolute; bottom:16px; left:0; right:0; text-align:center; z-index:10; }
+button { background:#1a3a5c; color:#fff; border:1px solid #4af; padding:8px 14px; border-radius:8px; font-size:14px; margin:0 4px; }
+button:active { background:#2a5a8c; }
+#cross { position:absolute; left:50%; top:50%; width:28px; height:28px; margin:-14px 0 0 -14px; border:2px solid rgba(255,255,255,.65); border-radius:50%; pointer-events:none; z-index:5; }
+#cross:before, #cross:after { content:""; position:absolute; background:rgba(255,255,255,.65); }
+#cross:before { left:50%; top:0; width:1px; height:100%; margin-left:-0.5px; }
+#cross:after { top:50%; left:0; height:1px; width:100%; margin-top:-0.5px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/astronomy-engine@2.1.19/astronomy.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js"></script>
+</head>
+<body>
+<video id="video" autoplay playsinline muted></video>
+<canvas id="canvas"></canvas>
+<div id="cross"></div>
+<div id="hud">
+  <div id="status">Initializing…</div>
+  <div id="target"></div>
+</div>
+<div id="controls">
+  <button id="btnStart">Start Sensors</button>
+  <button id="btnCal">Calibrate North</button>
+  <button id="btnSats">Load Sats</button>
+</div>
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const targetEl = document.getElementById('target');
+const btnStart = document.getElementById('btnStart');
+const btnCal = document.getElementById('btnCal');
+const btnSats = document.getElementById('btnSats');
+
+let lat = 38.58, lon = -121.49;
+let heading = 0, pitch = 0;
+let headingOffset = 0;
+let ready = false;
+let camStream = null;
+let wakeLock = null;
+let sats = [];
+
+const STARS = [
+  [6.752, -16.72, -1.46, "Sirius"], [0.139, 29.09, 2.06, "Alpheratz"],
+  [5.242, -8.20, 0.50, "Rigel"], [5.919, 7.41, 0.42, "Betelgeuse"],
+  [5.278, 45.99, 0.08, "Capella"], [7.655, 5.22, 0.37, "Procyon"],
+  [11.062, 61.75, 1.79, "Dubhe"], [13.420, 54.93, 2.23, "Mizar"],
+  [18.615, 38.78, 0.03, "Vega"], [19.846, 8.87, 0.77, "Altair"],
+  [20.690, 45.28, 1.25, "Deneb"], [14.261, 19.18, 2.14, "Arcturus"],
+  [16.490, -26.43, 1.06, "Antares"], [22.096, -47.29, 0.01, "Achernar"],
+  [6.399, -52.70, -0.74, "Canopus"], [4.598, 16.51, 0.85, "Aldebaran"],
+  [7.576, 31.89, 1.16, "Pollux"], [10.140, 11.97, 1.35, "Regulus"]
+];
+
+const CONSTELLATIONS = [
+  { name: "Orion", stars: [[5.242,-8.20,0.5],[5.919,7.41,0.4],[5.418,-1.20,1.7],[5.795,-9.67,2.1],[5.604,-9.67,2.2]] },
+  { name: "Ursa Major", stars: [[11.062,61.75,1.8],[11.897,53.69,2.4],[12.257,57.03,2.3],[12.900,55.96,1.8],[13.398,54.93,2.2]] },
+  { name: "Cassiopeia", stars: [[0.153,59.15,2.5],[0.945,60.72,2.2],[1.430,63.67,2.5],[1.906,63.67,2.7]] },
+  { name: "Cygnus", stars: [[19.846,45.28,1.3],[20.690,45.28,2.5],[20.220,40.26,2.2]] },
+  { name: "Scorpius", stars: [[16.490,-26.43,1.1],[16.836,-34.29,2.3],[17.202,-37.10,2.6]] },
+  { name: "Leo", stars: [[10.140,11.97,1.4],[11.235,20.52,2.1]] }
+];
+
+const PLANETS = ["Sun","Moon","Mercury","Venus","Mars","Jupiter","Saturn","Uranus","Neptune"];
+
+function toRad(d){return d*Math.PI/180;}
+function toDeg(r){return r*180/Math.PI;}
+function norm(a){a=a%360;return a<0?a+360:a;}
+
+function raDecToAltAz(raH, decDeg, latDeg, lonDeg, date){
+  const jd = date.getTime()/86400000 + 2440587.5;
+  const d = jd - 2451545.0;
+  let gmst = 18.697374558 + 24.06570982441908 * d;
+  gmst = ((gmst%24)+24)%24;
+  const lst = ((gmst + lonDeg/15)%24 + 24)%24;
+  let ha = (lst - raH)*15;
+  ha = ((ha%360)+360)%360;
+  if(ha>180) ha-=360;
+  const haR=toRad(ha), decR=toRad(decDeg), latR=toRad(latDeg);
+  const sinAlt = Math.sin(latR)*Math.sin(decR) + Math.cos(latR)*Math.cos(decR)*Math.cos(haR);
+  const alt = Math.asin(Math.max(-1,Math.min(1,sinAlt)));
+  const cosAz = (Math.sin(decR) - Math.sin(latR)*sinAlt)/(Math.cos(latR)*Math.cos(alt));
+  let az = Math.acos(Math.max(-1,Math.min(1,cosAz)));
+  if(Math.sin(haR)>0) az = 2*Math.PI - az;
+  return {alt:toDeg(alt), az:toDeg(az)};
+}
+
+function project(alt, az, headingDeg, pitchDeg, w, h){
+  const fovH = 55;
+  const fovV = fovH * (h/w);
+  let dAz = norm(az - headingDeg);
+  if(dAz>180) dAz-=360;
+  const dAlt = alt - pitchDeg;
+  const x = w/2 + (dAz/(fovH/2))*(w/2);
+  const y = h/2 - (dAlt/(fovV/2))*(h/2);
+  return {x,y,visible: Math.abs(dAz)<fovH*0.75 && Math.abs(dAlt)<fovV*0.75};
+}
+
+async function requestWakeLock(){
+  if(!('wakeLock' in navigator)) return;
+  try{
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', ()=>{wakeLock=null;});
+  }catch(e){}
+}
+
+async function startCamera(){
+  try{
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},
+      audio:false
+    });
+    video.srcObject = camStream;
+  }catch(e){
+    statusEl.textContent = 'Camera unavailable. Overlay only.';
+  }
+}
+
+async function startSensors(){
+  if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
+    const perm = await DeviceOrientationEvent.requestPermission();
+    if(perm!=='granted'){statusEl.textContent='Orientation denied';return;}
+  }
+  window.addEventListener('deviceorientationabsolute', onOrient, true);
+  window.addEventListener('deviceorientation', onOrient, true);
+  navigator.geolocation.getCurrentPosition(pos=>{
+    lat=pos.coords.latitude; lon=pos.coords.longitude;
+    statusEl.textContent=`Loc ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+    ready=true;
+  }, ()=>{statusEl.textContent='Using default location'; ready=true;}, {enableHighAccuracy:true,timeout:6000});
+  btnStart.disabled=true;
+  await requestWakeLock();
+}
+
+function onOrient(e){
+  let h = e.webkitCompassHeading;
+  if(h==null||isNaN(h)) h = e.alpha!=null ? (360-e.alpha) : heading;
+  heading = norm(h + headingOffset);
+  let b = e.beta||0;
+  pitch = Math.max(-90, Math.min(90, 90 - Math.abs(b)));
+  if(b<0) pitch = -pitch;
+}
+
+btnStart.onclick = async ()=>{ await startCamera(); await startSensors(); };
+btnCal.onclick = ()=>{ headingOffset = -heading; statusEl.textContent='Calibrated'; };
+
+document.addEventListener('visibilitychange', async ()=>{
+  if(document.visibilityState==='visible' && ready && !wakeLock) await requestWakeLock();
+});
+
+async function loadSats(){
+  statusEl.textContent = 'Loading satellites…';
+  const groups = ['stations','visual'];
+  sats = [];
+  for(const g of groups){
+    try{
+      const res = await fetch(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${g}&FORMAT=tle`);
+      const text = await res.text();
+      const lines = text.trim().split('\n');
+      for(let i=0; i<lines.length-2; i+=3){
+        const name = lines[i].trim();
+        const l1 = lines[i+1].trim();
+        const l2 = lines[i+2].trim();
+        if(l1.startsWith('1 ') && l2.startsWith('2 ')){
+          try{
+            const satrec = satellite.twoline2satrec(l1, l2);
+            if(satrec && !satrec.error) sats.push({name, satrec, type:g});
+          }catch(e){}
+        }
+        if(sats.length>40) break;
+      }
+    }catch(e){ console.warn(g,e); }
+  }
+  statusEl.textContent = `Loaded ${sats.length} objects`;
+}
+btnSats.onclick = loadSats;
+
+function resize(){ canvas.width=window.innerWidth; canvas.height=window.innerHeight; }
+window.addEventListener('resize', resize);
+resize();
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!ready){ requestAnimationFrame(draw); return; }
+  const now = new Date();
+  const w=canvas.width, h=canvas.height;
+  let best=null, bestDist=Infinity;
+
+  STARS.forEach(s=>{
+    const {alt,az} = raDecToAltAz(s[0],s[1],lat,lon,now);
+    const p = project(alt,az,heading,pitch,w,h);
+    if(!p.visible) return;
+    const r = Math.max(1.5, 5 - s[2]);
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2); ctx.fill();
+    if(s[3]){
+      ctx.fillStyle='#ccc'; ctx.font='11px system-ui';
+      ctx.fillText(s[3], p.x+6, p.y-4);
+    }
+  });
+
+  CONSTELLATIONS.forEach(con=>{
+    const pts=[];
+    con.stars.forEach(st=>{
+      const {alt,az}=raDecToAltAz(st[0],st[1],lat,lon,now);
+      pts.push(project(alt,az,heading,pitch,w,h));
+    });
+    ctx.strokeStyle='rgba(120,180,255,0.7)';
+    ctx.lineWidth=1.5;
+    ctx.beginPath();
+    let started=false;
+    pts.forEach(p=>{
+      if(p.visible){ if(!started){ctx.moveTo(p.x,p.y);started=true;} else ctx.lineTo(p.x,p.y); }
+      else started=false;
+    });
+    ctx.stroke();
+    const first=pts.find(p=>p.visible);
+    if(first){ ctx.fillStyle='#7cf'; ctx.font='13px system-ui'; ctx.fillText(con.name, first.x+8, first.y-6); }
+  });
+
+  if(window.Astronomy){
+    const observer = new Astronomy.Observer(lat, lon, 0);
+    PLANETS.forEach(body=>{
+      try{
+        const equ = Astronomy.Equator(body, now, observer, true, true);
+        const hor = Astronomy.Horizon(now, observer, equ.ra, equ.dec, 'normal');
+        const p = project(hor.altitude, hor.azimuth, heading, pitch, w, h);
+        if(!p.visible) return;
+        ctx.fillStyle = body==='Sun' ? '#ff0' : body==='Moon' ? '#eee' : '#f90';
+        ctx.beginPath(); ctx.arc(p.x,p.y, body==='Sun'||body==='Moon'?8:5, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle='#fff'; ctx.font='12px system-ui';
+        ctx.fillText(body, p.x+10, p.y+4);
+        const d = Math.hypot(p.x-w/2, p.y-h/2);
+        if(d<bestDist){ bestDist=d; best=body; }
+      }catch(e){}
+    });
+  }
+
+  if(sats.length && window.satellite){
+    const observerGd = {longitude:toRad(lon), latitude:toRad(lat), height:0.1};
+    sats.forEach(s=>{
+      try{
+        const pv = satellite.propagate(s.satrec, now);
+        if(!pv.position) return;
+        const gmst = satellite.gstime(now);
+        const posEcf = satellite.eciToEcf(pv.position, gmst);
+        const look = satellite.ecfToLookAngles(observerGd, posEcf);
+        const el = toDeg(look.elevation);
+        const az = toDeg(look.azimuth);
+        if(el<5) return;
+        const p = project(el, az, heading, pitch, w, h);
+        if(!p.visible) return;
+        ctx.fillStyle = s.type==='stations' ? '#0f0' : '#f55';
+        ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='#fff'; ctx.font='10px system-ui';
+        ctx.fillText(s.name.slice(0,16), p.x+6, p.y-2);
+        const d = Math.hypot(p.x-w/2, p.y-h/2);
+        if(d<bestDist){ bestDist=d; best=s.name; }
+      }catch(e){}
+    });
+  }
+
+  targetEl.textContent = best && bestDist < Math.min(w,h)*0.3 ? `Near: ${best}` : 'Sweep the sky';
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
