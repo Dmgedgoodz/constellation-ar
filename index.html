@@ -47,6 +47,7 @@ let heading = 0, pitch = 0;
 let headingOffset = 0;
 let ready = false;
 let camStream = null;
+let wakeLock = null;
 
 // Compact constellation stick figures: name, [ [ra_h, dec_deg, mag], ... ]
 const CONSTELLATIONS = [
@@ -144,6 +145,22 @@ function project(alt, az, headingDeg, pitchDeg, w, h) {
   return { x, y, visible: Math.abs(dAz) < fovH*0.7 && Math.abs(dAlt) < fovV*0.7 };
 }
 
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) {
+    statusEl.textContent += ' (Wake Lock not supported)';
+    return;
+  }
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    statusEl.textContent = (statusEl.textContent || '') + ' • Screen stay-awake on';
+    wakeLock.addEventListener('release', () => {
+      wakeLock = null;
+    });
+  } catch (err) {
+    console.warn('Wake Lock failed:', err);
+  }
+}
+
 async function startCamera() {
   try {
     camStream = await navigator.mediaDevices.getUserMedia({
@@ -182,6 +199,7 @@ async function startSensors() {
     ready = true;
   }, { enableHighAccuracy: true, timeout: 8000 });
   btnStart.disabled = true;
+  await requestWakeLock();
 }
 
 function onOrient(e) {
@@ -203,6 +221,12 @@ btnStart.addEventListener('click', async () => {
 btnCal.addEventListener('click', () => {
   headingOffset = -heading;
   statusEl.textContent = 'North calibrated (current direction = 0°).';
+});
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && ready && !wakeLock) {
+    await requestWakeLock();
+  }
 });
 
 function resize() {
